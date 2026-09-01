@@ -1,0 +1,20 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment Variables (Rahasia)
+.env
+.env.*
+!.env.example
+
+# Virtual Environment Python
+venv/
+.venv/
+env/
+ENV/
+
+# IDE / Editor config
+.vscode/
+.idea/
+.DS_Store
