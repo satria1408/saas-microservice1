@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from services.recommendation import get_recommendations
+from services.book_catalog import get_all_books
 
 router = APIRouter()
 
@@ -17,3 +18,7 @@ def rekomendasi_buku(judul: str, top_n: int = 3):
         }
 
     return {"judul_acuan": judul, "rekomendasi": hasil}
+
+    @router.get("/katalog")
+    def lihat_katalog():
+        return get_all_books()

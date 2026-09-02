@@ -15,11 +15,13 @@ async def scan_buku(file: UploadFile = File(...)):
         raise HTTPException(status_code=503, detail=str(e))
 
     if hasil.get("judul"):
+        penjelasan_untuk_katalog = hasil.get("penjelasan") if hasil.get("sumber_sinopsis") else None
+
         add_book_to_catalog(
             judul=hasil["judul"],
             penulis=hasil.get("penulis"),
             penerbit=hasil.get("penerbit"),
-            penjelasan=hasil.get("penjelasan"),
+            penjelasan=penjelasan_untuk_katalog,
         )
 
     return hasil
