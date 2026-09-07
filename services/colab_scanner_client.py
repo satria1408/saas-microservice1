@@ -16,7 +16,16 @@ def scan_book_cover(image_bytes: bytes, filename: str = "cover.jpg") -> dict:
             headers={"x-api-key": COLAB_API_KEY},
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
-        response.raise_for_status()
+
+        if response.status_code >= 400:
+            # Coba baca detail error dari body JSON Colab dulu, sebelum
+            # raise_for_status() membuang informasi itu
+            try:
+                detail = response.json().get("error", response.text)
+            except Exception:
+                detail = response.text
+            raise ColabScannerUnavailable(f"Colab error ({response.status_code}): {detail}")
+
         return response.json()
 
     except requests.exceptions.ConnectionError:
@@ -26,5 +35,3 @@ def scan_book_cover(image_bytes: bytes, filename: str = "cover.jpg") -> dict:
         )
     except requests.exceptions.Timeout:
         raise ColabScannerUnavailable("Colab tidak merespons dalam waktu yang wajar.")
-    except requests.exceptions.HTTPError as e:
-        raise ColabScannerUnavailable(f"Colab merespons dengan error: {e}")

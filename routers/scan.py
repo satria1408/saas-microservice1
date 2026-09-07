@@ -21,6 +21,7 @@ async def scan_buku(file: UploadFile = File(...)):
             judul=hasil["judul"],
             penulis=hasil.get("penulis"),
             penerbit=hasil.get("penerbit"),
+            kategori=hasil.get("kategori"),  # BARU - sebelumnya tidak dikirim
             penjelasan=penjelasan_untuk_katalog,
         )
 
