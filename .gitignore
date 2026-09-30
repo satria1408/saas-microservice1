@@ -18,3 +18,8 @@ ENV/
 .vscode/
 .idea/
 .DS_Store
+
+*.exe
+*.bak-*
+rag/build/
+*.db
