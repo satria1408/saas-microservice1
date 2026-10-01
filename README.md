@@ -96,3 +96,155 @@ Belum diimplementasikan, masih berupa daftar terbuka:
 pip install zxing-cpp
 ```
 OpenCV (`cv2.barcode`) sudah tersedia bawaan Colab (diverifikasi di OpenCV 5.0.0), tidak perlu instalasi tambahan.
+# rag - Pengelola Database Buku (C++ native + SQLite)
+
+Program terminal untuk mengelola `book_cache.db` **tanpa menyalakan Colab**.
+Ditulis dengan C++ murni dan API C SQLite (tanpa ORM atau wrapper) supaya tiap
+langkahnya terlihat, termasuk apa yang di Python biasanya "tersembunyi".
+
+Terakhir diperbarui: 1 Oktober 2026
+
+---
+
+## Arah arsitektur (keputusan hari ini)
+
+- **Satu sumber kebenaran: database lokal.** Semua keputusan dan penyimpanan data
+  ada di C++. Colab tidak menyimpan apa pun.
+- **Colab hanya jadi "pekerja mata":** menerima foto cover, mengembalikan
+  `{judul, penulis, kategori}` lewat Qwen2-VL. Alasannya GPU: laptop (i3 gen 2,
+  RAM 8 GB, tanpa GPU) tidak kuat menjalankan model vision itu.
+- **Jalur ISBN (barcode) tidak butuh model sama sekali**, jadi bisa jalan tanpa Colab.
+- FastAPI (folder `data`, `routers`, `services`, `scripts`) tetap jadi pintu HTTP
+  dan memanggil `rag.exe` sebagai proses native. Belum dikerjakan.
+
+## Struktur folder
+
+```
+rag/
+├─ src/
+│  ├─ main.cpp       baca argumen, pilih perintah
+│  ├─ db.cpp/.h      buka database, prepare, bind, pembungkus RAII
+│  ├─ util.cpp/.h    validasi ISBN (EAN-13), trim, huruf kecil, backup
+│  ├─ create.*       add (upsert)
+│  ├─ read.*         list
+│  ├─ update.*       edit
+│  ├─ delete.*       hapus
+│  └─ csv.*          parser CSV dan import
+├─ build.bat         build sederhana (selalu compile semua file)
+└─ Makefile          opsional, hanya compile file yang berubah
+```
+
+## Build
+
+Paling sederhana, dari terminal VS Code di folder `rag/`:
+
+```powershell
+.\build.bat
+```
+
+`Makefile` bersifat opsional. Versi yang diperbaiki memakai `-MMD -MP` dan
+`-include $(DEP)` supaya perubahan file `.h` ikut memicu kompilasi ulang
+(versi lama tidak, dan itu sudah dibuktikan di sandbox). Compiler dan SQLite harus
+berasal dari lingkungan MSYS2 yang sama (UCRT64 atau CLANG64).
+
+## Pemakaian
+
+Path dengan spasi harus diberi tanda kutip.
+
+```powershell
+.\rag.exe --db "data\book_cache.db" list [kata]
+.\rag.exe --db "data\book_cache.db" add <judul> <penulis> <penerbit> [isbn]
+.\rag.exe --db "data\book_cache.db" edit <id> <kolom> <nilai>
+.\rag.exe --db "data\book_cache.db" hapus <id> [-y]
+.\rag.exe --db "data\book_cache.db" import file.csv [--tanpa-transaksi] [--rinci]
+```
+
+Opsi umum: `--no-backup`. Variabel lingkungan `RAG_DB` bisa dipakai sebagai ganti `--db`.
+
+- **Backup otomatis** sebelum `add`, `edit`, `hapus`, dan `import`
+  (`book_cache.db.bak-<tanggal-jam>` di sebelah database).
+- **Upsert:** buku dianggap sama kalau judul dan penulis sama (huruf besar/kecil
+  diabaikan). Nilai kosong tidak menimpa penerbit atau ISBN yang sudah ada.
+- **ISBN** divalidasi dengan checksum EAN-13. Di `add` dan `import` ISBN salah
+  dikosongkan dengan peringatan, di `edit` ditolak.
+- **CSV:** baris pertama header (`judul,penulis,penerbit,isbn`, urutan bebas).
+  Baris tanpa judul dilewati dan dilaporkan.
+
+## Database
+
+Satu file `book_cache.db` berisi beberapa tabel (seperti satu file Excel, banyak sheet).
+Ada **dua database terpisah** dan jangan saling menimpa:
+
+| File | Peran |
+|---|---|
+| `book_cache.db` | database inti (dari Drive/Colab), dipakai `rag.exe` |
+| `book_catalog.db` | database fitur lokal (rekomendasi), isinya belum diperiksa |
+
+Skema `book_cache.db`:
+
+| Tabel | Kolom |
+|---|---|
+| `rag_manual` | `id`, `judul`, `penulis`, `penerbit`, `sumber`, `waktu_masuk`, `isbn` |
+| `katalog` | `id`, `judul`, `penulis`, `penerbit`, `penerbit_sumber`, `stok` (default 1), `status_konfirmasi` (default `otomatis`), `waktu_masuk`, `isbn`, `kategori` |
+| `cache_scan` | `hash_gambar` (PK), `judul`, `penulis`, `kategori` |
+| `cache_metadata` | `judul_penulis_key` (PK), `penerbit`, `sumber`, `isbn` |
+| view `katalog_publik` | `SELECT * FROM katalog WHERE status_konfirmasi = 'terkonfirmasi'` |
+
+## Status
+
+| Bagian | Status |
+|---|---|
+| `rag_manual` di C++ (add, list, edit, hapus, import) | selesai dan diuji |
+| `katalog` (stok, dedup, view `katalog_publik`) | belum |
+| `cache_metadata`, `cache_scan` | belum |
+| Jalur ISBN lokal (checksum, cache, rag_manual) | belum |
+| Panggilan Open Library dan Colab | belum (butuh libcurl atau perantara Python) |
+
+Isi `rag_manual` sekarang sekitar 190 buku. Tabel lain di database lama cuma data uji.
+
+## Temuan kualitas data (perlu dibersihkan)
+
+- Nama penerbit tidak seragam ("Kepustakaan Populer Gramedia" vs "(KPG)",
+  "Deepublish" vs "Deeppublish").
+- Penulis keliru pada beberapa judul: *The Stranger*, *The Great Gatsby*, *Wonder*.
+- ISBN dobel antar buku berbeda, dan satu ISBN hanya 12 digit.
+- Sisa format katalog perpustakaan di judul dan penulis (` : `, `[sumber elektornis]`,
+  `[dan 7 lainya]`, gelar seperti "S.Psi., M.A.").
+- Kolom `sumber` seluruhnya `input_manual`, jadi tidak bisa dibedakan asalnya.
+
+## Catatan teknis dan temuan
+
+- **Transaksi:** impor dalam satu transaksi jauh lebih cepat daripada tanpa transaksi.
+  Ukuran di sandbox Linux (`-O2`): 5.000 baris sekitar 1,2 detik vs 4,7 detik.
+  Angka di laptop akan berbeda, rasionya yang penting. Belum diukur di laptop sendiri.
+- **Waktu tumbuh kuadratik:** 20.000 baris butuh sekitar 18,5 detik. Penyebabnya
+  pengecekan "buku sudah ada?" (`LOWER(judul)`, `LOWER(penulis)`) memindai seluruh
+  tabel tiap baris karena tidak ada indeks. Belum diperbaiki.
+- **Ide cache ISBN yang gagal:** pencarian ISBN yang tidak ketemu sekarang tidak
+  diingat, jadi diulang terus. Rencana: tabel `cache_isbn` dengan kedaluwarsa
+  7 hari untuk yang gagal.
+- **Potensi sumber isu stok lama:** di notebook, cabang cache lama langsung
+  `return` tanpa menambah stok, sedangkan cabang Open Library menambahnya.
+
+## Masalah terbuka
+
+- `edit` judul atau penulis tidak mengecek duplikat.
+- File backup menumpuk dan perlu dibersihkan manual.
+- `buku.csv` di repo hanya dua baris uji (bukan data asli).
+- Folder proyek berada di dalam OneDrive, yang bisa mengunci atau menimpa file `.db`.
+  Pertimbangkan memindahkan database ke luar OneDrive.
+- Build di MSYS2 CLANG64 belum terverifikasi. `Makefile` memakai `CXX = clang++`,
+  dan toolchain clang belum terpasang karena penyimpanan terbatas.
+
+## Langkah berikutnya (urut)
+
+1. Bersihkan `rag_manual` (penerbit baku, penulis keliru, ISBN bermasalah).
+2. Pasang indeks untuk pengecekan duplikat.
+3. Tabel `katalog` dengan stok dan view `katalog_publik`.
+4. `cache_metadata`, `cache_scan`, lalu `cache_isbn`.
+5. Jalur ISBN lokal tanpa Colab.
+6. Panggilan HTTP (Open Library dan Colab) lewat libcurl atau perantara FastAPI.
+
+## Git
+
+Pastikan `.gitignore` memuat `*.db`, `*.exe`, `*.o`, `*.d`, `*.bak-*`, `rag/build/`, dan `.env`.
