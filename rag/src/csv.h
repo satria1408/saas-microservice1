@@ -1,5 +1,4 @@
 #pragma once
-// Parser CSV: kutip, koma di dalam kutip, "" sebagai kutip literal, CRLF, BOM UTF-8.
 #include <string>
 #include <vector>
 

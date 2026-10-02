@@ -9,8 +9,6 @@
 #include "csv.h"
 #include "util.h"
 
-// Setelah tiap pemakaian statement harus di-reset, kalau tidak masih dianggap
-// "berjalan" dan COMMIT bisa gagal.
 static void ulang(sqlite3_stmt* st) {
     sqlite3_reset(st);
     sqlite3_clear_bindings(st);

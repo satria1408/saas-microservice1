@@ -1,5 +1,4 @@
 #pragma once
-// UPDATE: ubah satu kolom pada satu baris berdasarkan ID.
 #include <string>
 
 #include "db.h"

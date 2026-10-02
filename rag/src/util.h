@@ -1,5 +1,4 @@
 #pragma once
-// Fungsi kecil tanpa dependensi database: validasi ISBN dan pembersihan teks.
 #include <optional>
 #include <string>
 #include <string_view>
