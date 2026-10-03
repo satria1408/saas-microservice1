@@ -19,7 +19,7 @@ void meta_daftar(sqlite3* db, const std::string& status, const std::string& kata
         "        OR LOWER(COALESCE(penulis_asli,'')) LIKE ?2"
         "        OR LOWER(COALESCE(penerbit,'')) LIKE ?2"
         "        OR COALESCE(isbn,'') LIKE ?2)"
-        " ORDER BY rowid";
+        " ORDER BY (COALESCE(status,'baru')='dipromosikan') DESC, rowid";
 
     auto st = siapkan(db, sql);
     bind_teks(st.get(), 1, status);

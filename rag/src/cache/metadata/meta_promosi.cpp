@@ -9,6 +9,12 @@
 
 void meta_promosi(sqlite3* db, const std::string& key,
                   const std::string& penerbit_baru, const std::string& isbn_baru) {
+     if (!trim(isbn_baru).empty()) {
+        const std::optional<std::string> cek = bersihkan_isbn(isbn_baru);
+    if (!cek || !ean13_valid(*cek))
+            throw std::runtime_error("ISBN koreksi '" + trim(isbn_baru) +
+                                     "' tidak lolos checksum EAN-13, promosi dibatalkan");
+    }
     jalankan(db, "BEGIN");
     try {
         // 1. Ambil entri cache

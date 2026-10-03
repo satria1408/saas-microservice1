@@ -13,6 +13,11 @@
 #include "cache/metadata/meta_kelola.h"
 #include "cache/metadata/meta_promosi.h"
 #include "cache/metadata/meta_read.h"
+#include "cache/metadata/meta_ttl.h"
+#include "cache/scan/scan_create.h"
+#include "cache/scan/scan_hapus.h"
+#include "cache/scan/scan_read.h"
+#include "cache/scan/scan_skema.h"
 #include "crud/create.h"
 #include "crud/delete.h"
 #include "crud/read.h"
@@ -23,6 +28,7 @@ struct Opsi {
     std::string db;
     bool no_backup = false, tanpa_transaksi = false, rinci = false, yes = false;
     int hari = 0; 
+    int simpan_backup = 5;
     std::vector<std::string> args;
 };
 
@@ -44,6 +50,10 @@ static Opsi baca_opsi(int argc, char** argv) {
         } else if (a == "--hari") {
             if (k + 1 >= argc) throw std::runtime_error("--hari butuh angka");
             o.hari = baca_angka(argv[++k], "--hari");
+        } else if (a == "--simpan-backup") {
+            if (k + 1 >= argc) throw std::runtime_error("--simpan-backup butuh angka");
+            o.simpan_backup = baca_angka(argv[++k], "--simpan-backup");
+            if (o.simpan_backup < 1) throw std::runtime_error("--simpan-backup minimal 1");
         } else if (a == "--no-backup") o.no_backup = true;
         else if (a == "--tanpa-transaksi") o.tanpa_transaksi = true;
         else if (a == "--rinci") o.rinci = true;
@@ -64,6 +74,28 @@ static long long baca_id(const std::string& s, const char* perintah) {
 static const std::string& wajib(const std::string& nilai, const char* pesan) {
     if (nilai.empty()) throw std::runtime_error(pesan);
     return nilai;
+}
+
+// Semua perintah 'rag cache scan <aksi> ...'. args[0]="cache", args[1]="scan", args[2]=aksi.
+static void perintah_cache_scan(sqlite3* db, const Opsi& o) {
+    auto arg = [&](size_t i) { return i < o.args.size() ? o.args[i] : std::string(); };
+    const std::string aksi = arg(2);
+
+    if (aksi == "list") {
+        scan_daftar(db, arg(3));
+    }
+    else if (aksi == "get") {
+        scan_tampil(db, wajib(arg(3), "cache scan get butuh <hash>"));
+    }
+    else if (aksi == "add") {
+        scan_tambah(db, wajib(arg(3), "cache scan add butuh <hash> <judul> <penulis> [kategori]"),
+                    arg(4), arg(5), arg(6));
+    }
+    else if (aksi == "hapus") {
+        scan_hapus(db, wajib(arg(3), "cache scan hapus butuh <awalan-hash>"), o.yes);
+    }
+    else if (aksi.empty()) throw std::runtime_error("cache scan butuh aksi: list, get, add, atau hapus");
+    else throw std::runtime_error("aksi cache scan tidak dikenal: " + aksi);
 }
 
 // Semua perintah 'rag cache <sub> ...'. args[0]="cache", args[1]=sub.
@@ -92,8 +124,23 @@ static void perintah_cache(sqlite3* db, const Opsi& o) {
     else if (sub == "bersihkan") {
         meta_bersihkan(db, o.hari, o.yes);
     }
+    else if (sub == "ttl") {
+        const std::string aksi = arg(2);
+        if (aksi.empty()) meta_status_ttl(db);
+        else if (aksi == "pasang") {
+            int ditolak = arg(3).empty() ? 7 : baca_angka(arg(3), "hari ditolak");
+            int promosi = arg(4).empty() ? 0 : baca_angka(arg(4), "hari dipromosikan");
+            int baru    = arg(5).empty() ? 90 : baca_angka(arg(5), "hari baru");
+            meta_pasang_ttl(db, ditolak, promosi, baru);
+        }
+        else if (aksi == "lepas") meta_lepas_ttl(db);
+        else throw std::runtime_error("cache ttl: aksi harus pasang atau lepas");
+    }
     else if (sub == "promosi") {
         meta_promosi(db, wajib(arg(2), "cache promosi butuh <key>"), arg(3), arg(4));
+    }
+    else if (sub == "scan") {
+        perintah_cache_scan(db, o);
     }
     else if (sub.empty()) throw std::runtime_error("cache butuh sub-perintah (jalankan rag tanpa argumen)");
     else throw std::runtime_error("sub-perintah cache tidak dikenal: " + sub);
@@ -120,6 +167,11 @@ int main(int argc, char** argv) {
                 "       rag [--db path] cache promosi <key> [penerbit] [isbn]\n"
                 "       rag [--db path] cache add <judul> <penulis> <penerbit> [isbn]\n"
                 "\n"
+                "       rag [--db path] cache scan list [kata]\n"
+                "       rag [--db path] cache scan get <awalan-hash>\n"
+                "       rag [--db path] cache scan add <hash> <judul> <penulis> [kategori]\n"
+                "       rag [--db path] cache scan hapus <awalan-hash> [-y]\n"
+                "\n"
                 "Opsi: --no-backup\n";
             return 1;
         }
@@ -132,17 +184,20 @@ int main(int argc, char** argv) {
         if (cmd == "cache") {
             const std::string sub = arg(1);
             const bool menulis_cache = (sub == "add" || sub == "status" || sub == "hapus" ||
-                                        sub == "bersihkan" || sub == "promosi");
+                                        sub == "bersihkan" || sub == "promosi" ||
+                                        (sub == "ttl" && (arg(2) == "pasang" || arg(2) == "lepas")) ||
+                                        (sub == "scan" && (arg(2) == "add" || arg(2) == "hapus")));
             // Backup DULU, baru skema cache dipastikan, supaya migrasi kolom
             // pertama kali ikut tercatat di salinan sebelum-perubahan.
-            if (menulis_cache && !o.no_backup) buat_backup(o.db);
+            if (menulis_cache && !o.no_backup) buat_backup(o.db, o.simpan_backup);
             pastikan_skema_metadata(db.get());
+            pastikan_skema_scan(db.get());
             perintah_cache(db.get(), o);
             return 0;
         }
 
         bool menulis = (cmd == "add" || cmd == "import" || cmd == "edit" || cmd == "hapus");
-        if (menulis && !o.no_backup) buat_backup(o.db);
+        if (menulis && !o.no_backup) buat_backup(o.db, o.simpan_backup);
 
         if (cmd == "add")         tambah(db.get(), arg(1), arg(2), arg(3), arg(4));
         else if (cmd == "import") {

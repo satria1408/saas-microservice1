@@ -1,6 +1,5 @@
 #pragma once
-// Lapisan akses SQLite: RAII, helper prepare/bind, skema, dan backup.
-// Kalau nanti pindah ke PostgreSQL, file inilah yang paling banyak berubah.
+
 #include <memory>
 #include <optional>
 #include <string>
@@ -29,4 +28,4 @@ std::string kolom_teks(sqlite3_stmt* st, int i);
 void jalankan(sqlite3* db, const char* sql);
 
 void pastikan_skema(sqlite3* db);
-void buat_backup(const std::string& path);
+void buat_backup(const std::string& path, int simpan = 5);

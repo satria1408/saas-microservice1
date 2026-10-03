@@ -5,6 +5,10 @@
 #include <iostream>
 #include <stdexcept>
 
+#include <algorithm>
+#include <cctype>
+#include <vector>
+
 [[noreturn]] void gagal(sqlite3* db, const std::string& konteks) {
     throw std::runtime_error(konteks + ": " + sqlite3_errmsg(db));
 }
@@ -65,12 +69,50 @@ void pastikan_skema(sqlite3* db) {
     if (!ada_isbn) jalankan(db, "ALTER TABLE rag_manual ADD COLUMN isbn TEXT");
 }
 
-void buat_backup(const std::string& path) {
+// Nama harus persis "<file>.bak-YYYYMMDD-HHMMSS", supaya file lain tidak ikut terhapus.
+static bool nama_backup_valid(const std::string& nama, const std::string& awalan) {
+    if (nama.size() != awalan.size() + 15) return false;
+    if (nama.compare(0, awalan.size(), awalan) != 0) return false;
+    for (size_t i = 0; i < 15; ++i) {
+        const char c = nama[awalan.size() + i];
+        if (i == 8) { if (c != '-') return false; }
+        else if (!std::isdigit(static_cast<unsigned char>(c))) return false;
+    }
+    return true;
+}
+
+void buat_backup(const std::string& path, int simpan) {
     namespace fs = std::filesystem;
+    if (simpan < 1) throw std::runtime_error("jumlah backup yang disimpan minimal 1");
     std::time_t t = std::time(nullptr);
     char buf[32];
     std::strftime(buf, sizeof buf, "%Y%m%d-%H%M%S", std::localtime(&t));
     std::string tujuan = path + ".bak-" + buf;
     fs::copy_file(path, tujuan, fs::copy_options::overwrite_existing);
     std::cout << "[backup] " << tujuan << "\n";
+
+    // Rotasi. Gagal merotasi (mis. file dikunci OneDrive) tidak boleh membatalkan perintah.
+    try {
+        const fs::path p(path);
+        const fs::path folder = p.has_parent_path() ? p.parent_path() : fs::path(".");
+        const std::string awalan = p.filename().string() + ".bak-";
+        std::vector<std::string> daftar;
+        for (const auto& e : fs::directory_iterator(folder)) {
+            if (!e.is_regular_file()) continue;
+            const std::string nama = e.path().filename().string();
+            if (nama_backup_valid(nama, awalan)) daftar.push_back(nama);
+        }
+        std::sort(daftar.begin(), daftar.end());  // format waktu tetap -> urut kronologis
+        int dibuang = 0;
+        while (static_cast<int>(daftar.size()) > simpan) {
+            fs::remove(folder / daftar.front());
+            daftar.erase(daftar.begin());
+            ++dibuang;
+        }
+        if (dibuang > 0)
+            std::cout << "[backup] " << dibuang << " backup lama dibuang (simpan " << simpan
+                      << " terakhir)\n";
+    } catch (const fs::filesystem_error& e) {
+        std::cerr << "[WARN] rotasi backup gagal: " << e.what() << "\n";
+    }
 }

@@ -16,7 +16,7 @@ std::string buat_key(const std::string& judul, const std::string& penulis) {
             out += static_cast<char>(c);
             pemisah_terakhir = false;
         } else if (!pemisah_terakhir) {
-            out += '_'; 
+            out += '_';
             pemisah_terakhir = true;
         }
     }
@@ -50,6 +50,11 @@ void pastikan_skema_metadata(sqlite3* db) {
     pastikan_kolom(db, "penulis_asli", "TEXT");
     pastikan_kolom(db, "status", "TEXT DEFAULT 'baru'");
     pastikan_kolom(db, "waktu_masuk", "TEXT");
+    // Lindungi entri yang sudah dipromosikan dari INSERT berikutnya. Kalau tidak, entri
+    jalankan(db,
+        "CREATE TRIGGER IF NOT EXISTS cache_meta_lindungi BEFORE INSERT ON cache_metadata "
+        "WHEN EXISTS (SELECT 1 FROM cache_metadata WHERE judul_penulis_key=NEW.judul_penulis_key "
+        "AND status='dipromosikan') BEGIN SELECT RAISE(IGNORE); END");
 }
 
 HasilMeta meta_simpan(sqlite3* db, const std::string& judul, const std::string& penulis,
@@ -70,12 +75,16 @@ HasilMeta meta_simpan(sqlite3* db, const std::string& judul, const std::string& 
     if (!trim(penerbit).empty()) pener = trim(penerbit);
     if (!trim(penulis).empty()) penulis_b = trim(penulis);
 
-    // cek sudah ada atau belum
-    auto cari = siapkan(db, "SELECT 1 FROM cache_metadata WHERE judul_penulis_key=?");
+    // [BARU] cek sudah ada atau belum, sekaligus ambil statusnya
+    auto cari = siapkan(db,
+        "SELECT COALESCE(status,'baru') FROM cache_metadata WHERE judul_penulis_key=?");
     bind_teks(cari.get(), 1, key);
     int rc = sqlite3_step(cari.get());
     if (rc != SQLITE_ROW && rc != SQLITE_DONE) gagal(db, "cari");
     const bool ada = (rc == SQLITE_ROW);
+    // [BARU] Bug 1: entri yang sudah dipromosikan berisi data yang sudah diperiksa. Hasil scan
+    // berikutnya tidak boleh menimpanya. Hanya 'cache promosi' yang boleh mengubahnya.
+    if (ada && kolom_teks(cari.get(), 0) == "dipromosikan") return HasilMeta::Lewati;
     cari.reset();
 
     if (ada) {
@@ -114,6 +123,10 @@ void meta_tambah(sqlite3* db, const std::string& judul, const std::string& penul
                  const std::string& penerbit, const std::string& isbn) {
     if (trim(judul).empty()) throw std::runtime_error("cache add butuh minimal <judul>");
     HasilMeta h = meta_simpan(db, judul, penulis, penerbit, isbn, "input_manual");
-    std::cout << (h == HasilMeta::Baru ? "[baru]   " : "[update] ")
-              << buat_key(trim(judul), trim(penulis)) << "\n";
+    // [BARU] pesan khusus kalau entri dilewati karena sudah dipromosikan
+    const std::string key = buat_key(trim(judul), trim(penulis));
+    if (h == HasilMeta::Lewati)
+        std::cout << "[lewati] " << key << " sudah dipromosikan, cache tidak ditimpa\n";
+    else
+        std::cout << (h == HasilMeta::Baru ? "[baru]   " : "[update] ") << key << "\n";
 }
