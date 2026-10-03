@@ -95,156 +95,102 @@ Belum diimplementasikan, masih berupa daftar terbuka:
 ```
 pip install zxing-cpp
 ```
-OpenCV (`cv2.barcode`) sudah tersedia bawaan Colab (diverifikasi di OpenCV 5.0.0), tidak perlu instalasi tambahan.
-# rag - Pengelola Database Buku (C++ native + SQLite)
+## Progress Hari Ini — CRUD `rag_manual` (C++) & Cache Metadata
 
-Program terminal untuk mengelola `book_cache.db` **tanpa menyalakan Colab**.
-Ditulis dengan C++ murni dan API C SQLite (tanpa ORM atau wrapper) supaya tiap
-langkahnya terlihat, termasuk apa yang di Python biasanya "tersembunyi".
+**Tujuan:** data kurasi tidak lagi terkunci di runtime Colab. Menambah atau mengoreksi buku cukup lewat CLI lokal `rag.exe`, tanpa menyalakan sesi Colab. Colab diposisikan sebagai mesin inferensi Qwen saja.
 
-Terakhir diperbarui: 1 Oktober 2026
-
----
-
-## Arah arsitektur (keputusan hari ini)
-
-- **Satu sumber kebenaran: database lokal.** Semua keputusan dan penyimpanan data
-  ada di C++. Colab tidak menyimpan apa pun.
-- **Colab hanya jadi "pekerja mata":** menerima foto cover, mengembalikan
-  `{judul, penulis, kategori}` lewat Qwen2-VL. Alasannya GPU: laptop (i3 gen 2,
-  RAM 8 GB, tanpa GPU) tidak kuat menjalankan model vision itu.
-- **Jalur ISBN (barcode) tidak butuh model sama sekali**, jadi bisa jalan tanpa Colab.
-- FastAPI (folder `data`, `routers`, `services`, `scripts`) tetap jadi pintu HTTP
-  dan memanggil `rag.exe` sebagai proses native. Belum dikerjakan.
-
-## Struktur folder
+**Struktur `rag/`:**
 
 ```
 rag/
-├─ src/
-│  ├─ main.cpp       baca argumen, pilih perintah
-│  ├─ db.cpp/.h      buka database, prepare, bind, pembungkus RAII
-│  ├─ util.cpp/.h    validasi ISBN (EAN-13), trim, huruf kecil, backup
-│  ├─ create.*       add (upsert)
-│  ├─ read.*         list
-│  ├─ update.*       edit
-│  ├─ delete.*       hapus
-│  └─ csv.*          parser CSV dan import
-├─ build.bat         build sederhana (selalu compile semua file)
-└─ Makefile          opsional, hanya compile file yang berubah
+├─ Makefile / build.bat
+└─ src/
+   ├─ main.cpp                 ← parse opsi + dispatch
+   ├─ db.h/.cpp                ← RAII SQLite, prepare/bind, skema, backup
+   ├─ util.h/.cpp              ← checksum EAN-13, trim, huruf kecil
+   ├─ csv.h/.cpp               ← parser CSV (kutip, CRLF, BOM)
+   ├─ crud/                    ← rag_manual: create / read / update / delete
+   └─ cache/metadata/          ← cache_metadata
+      ├─ meta_create.*         ← skema, buat_key, meta_simpan
+      ├─ meta_read.*           ← list + filter status/kata
+      ├─ meta_kelola.*         ← ubah status, hapus per key, bersihkan massal
+      └─ meta_promosi.*        ← cache -> rag_manual (1 transaksi)
 ```
 
-## Build
+**Perintah CLI** (`--db path` atau env `RAG_DB`, default `book_cache.db`):
 
-Paling sederhana, dari terminal VS Code di folder `rag/`:
+```
+rag add <judul> <penulis> <penerbit> [isbn]
+rag import file.csv [--tanpa-transaksi] [--rinci]
+rag list [kata]
+rag edit <id> <judul|penulis|penerbit|isbn> <nilai>
+rag hapus <id> [-y]
+
+rag cache list [baru|ditinjau|dipromosikan|ditolak] [kata]
+rag cache status <key> <baru|ditinjau|ditolak>
+rag cache hapus <key> [-y]
+rag cache bersihkan [--hari N] [-y]
+rag cache promosi <key> [penerbit] [isbn]
+rag cache add <judul> <penulis> <penerbit> [isbn]
+
+Opsi: --no-backup
+```
+
+**Konsep cache sementara:** `cache_metadata` adalah tempat singgah hasil lookup (misalnya dari Open Library) sebelum diverifikasi, bukan cache yang kedaluwarsa sendiri. Alurnya:
+
+```
+Open Library / scan -> cache_metadata (baru) -> tinjau -> promosi -> rag_manual (terverifikasi, override)
+```
+
+**Kolom baru di `cache_metadata`** (migrasi otomatis, aman untuk DB lama dari notebook): `judul_asli`, `penulis_asli`, `status`, `waktu_masuk`. `judul_asli` dan `penulis_asli` dibutuhkan karena `judul_penulis_key` sudah dinormalisasi dan teks aslinya tidak bisa dipulihkan.
+
+**Keputusan desain penting:**
+
+1. **Promosi atomik.** Salin ke `rag_manual` dan update baris cache terjadi dalam satu transaksi. Gagal di langkah mana pun berarti ROLLBACK, tidak ada kondisi "sudah masuk RAG tapi masih berstatus baru".
+2. **Promosi juga menimpa baris cache** dengan nilai yang benar. Urutan cek di notebook adalah cache -> `rag_manual` -> Open Library, jadi kalau cache dibiarkan berisi penerbit salah edisi, koreksi di `rag_manual` tidak pernah terbaca.
+3. **Koreksi salah edisi lewat argumen promosi** (`cache promosi <key> "Penerbit Benar" <isbn>`), sebagai pengganti fitur edit isi cache yang sengaja dibuang. Cache ditulis otomatis oleh proses scan, jadi yang perlu manusia hanya meninjau, memutuskan, dan membersihkan.
+4. **Status `dipromosikan` tidak bisa diatur manual**, hanya berubah lewat promosi yang benar-benar menyalin data.
+5. **`bersihkan` tidak pernah menghapus entri `ditinjau`.** Tanpa `--hari`, hanya `dipromosikan` dan `ditolak` yang dihapus.
+6. **`buat_key` meniru `_normalisasi_key` di notebook** supaya baris yang ditulis C++ dan Python punya kunci yang sama.
+7. **Backup otomatis** (`<db>.bak-<waktu>`) sebelum perintah yang menulis, dibuat sebelum migrasi skema.
+8. **`cache_metadata` dan `rag_manual` tetap satu file DB**, supaya promosi bisa atomik.
+
+**Build (Windows, MSYS2 CLANG64):**
 
 ```powershell
+C:\msys64\usr\bin\pacman.exe -S --needed mingw-w64-clang-x86_64-sqlite3
+$env:Path = "C:\msys64\clang64\bin;" + $env:Path
 .\build.bat
 ```
 
-`Makefile` bersifat opsional. Versi yang diperbaiki memakai `-MMD -MP` dan
-`-include $(DEP)` supaya perubahan file `.h` ikut memicu kompilasi ulang
-(versi lama tidak, dan itu sudah dibuktikan di sandbox). Compiler dan SQLite harus
-berasal dari lingkungan MSYS2 yang sama (UCRT64 atau CLANG64).
+`build.bat` memakai daftar file eksplisit dan perlu diedit tiap ada file `.cpp` baru. Makefile memakai wildcard tiga level tapi butuh shell yang punya `mkdir -p` dan `rm` (terminal MSYS2, bukan PowerShell). Flag `-Isrc` wajib.
 
-## Pemakaian
+**Hasil uji:**
 
-Path dengan spasi harus diberi tanda kutip.
+- Uji otomatis di sandbox (g++, Linux, skema DB ditiru dari notebook): build 12 objek tanpa warning `-Wall -Wextra`; migrasi skema; alur add -> status -> promosi -> bersihkan; promosi ulang idempoten; entri `ditolak` tidak bisa dipromosikan; ROLLBACK terbukti dengan menggagalkan UPDATE cache lewat trigger; `buat_key` cocok dengan normalisasi Python pada 12 judul sulit (tanda baca, aksen, CJK, penulis kosong), 0 beda.
+- Uji manual di mesin sendiri (clang64): build bersih setelah dua titik nyasar di `meta_kelola.h` dan `meta_create.cpp` dibuang; migrasi pada salinan `book_cache.db` asli; promosi satu entri sampai berstatus `dipromosikan` dengan sumber `rag_manual`.
+- **Belum diuji:** perilaku `bersihkan --hari` pada baris lama notebook yang `waktu_masuk`-nya kosong (dari membaca kode, baris itu tidak pernah lolos kriteria umur); perilaku dengan clang/libc++ di luar mesin ini; sisi Python.
 
-```powershell
-.\rag.exe --db "data\book_cache.db" list [kata]
-.\rag.exe --db "data\book_cache.db" add <judul> <penulis> <penerbit> [isbn]
-.\rag.exe --db "data\book_cache.db" edit <id> <kolom> <nilai>
-.\rag.exe --db "data\book_cache.db" hapus <id> [-y]
-.\rag.exe --db "data\book_cache.db" import file.csv [--tanpa-transaksi] [--rinci]
-```
+**Keterbatasan yang diketahui:**
 
-Opsi umum: `--no-backup`. Variabel lingkungan `RAG_DB` bisa dipakai sebagai ganti `--db`.
+1. **Baris lama dari notebook tidak bisa langsung dipromosikan**, karena `judul_asli` kosong. Jalurnya: `cache add` ulang judul dan penulis aslinya (status tidak tersentuh), lalu `cache promosi`.
+2. **ISBN override tidak valid di `promosi`** hanya memunculkan `[WARN]` dan promosi lanjut dengan ISBN kosong, bukan dibatalkan. Keputusannya belum diambil.
+3. **Notebook memakai `INSERT OR REPLACE` ke `cache_metadata`**, yang mengembalikan `judul_asli`, `penulis_asli`, dan `status` ke default. Harus diganti upsert sebelum notebook dan CLI menulis ke tabel yang sama.
+4. **`cache list` diurutkan `rowid`** (urutan masuk), jadi entri yang sudah dipromosikan tidak naik ke atas.
+5. **`rag.exe` di luar terminal MSYS2** butuh DLL dari `clang64\bin` di PATH.
+6. **Proyek ada di folder OneDrive.** Sinkronisasi bisa mengunci atau menduplikasi file `.db` dan `.bak-*`.
+7. Belum ada `busy_timeout` atau WAL, jadi dua penulis bersamaan ke satu file bisa menghasilkan `database is locked`. Belum ada test tertulis.
 
-- **Backup otomatis** sebelum `add`, `edit`, `hapus`, dan `import`
-  (`book_cache.db.bak-<tanggal-jam>` di sebelah database).
-- **Upsert:** buku dianggap sama kalau judul dan penulis sama (huruf besar/kecil
-  diabaikan). Nilai kosong tidak menimpa penerbit atau ISBN yang sudah ada.
-- **ISBN** divalidasi dengan checksum EAN-13. Di `add` dan `import` ISBN salah
-  dikosongkan dengan peringatan, di `edit` ditolak.
-- **CSV:** baris pertama header (`judul,penulis,penerbit,isbn`, urutan bebas).
-  Baris tanpa judul dilewati dan dilaporkan.
+**Isu terbuka:**
 
-## Database
+- Keputusan perilaku ISBN override tidak valid (batalkan promosi atau lanjut dengan ISBN kosong).
+- Urutan tampil `cache list` (antrean kerja di atas, yang selesai di bawah, atau sebaliknya).
 
-Satu file `book_cache.db` berisi beberapa tabel (seperti satu file Excel, banyak sheet).
-Ada **dua database terpisah** dan jangan saling menimpa:
+**Rencana berikutnya:**
 
-| File | Peran |
-|---|---|
-| `book_cache.db` | database inti (dari Drive/Colab), dipakai `rag.exe` |
-| `book_catalog.db` | database fitur lokal (rekomendasi), isinya belum diperiksa |
-
-Skema `book_cache.db`:
-
-| Tabel | Kolom |
-|---|---|
-| `rag_manual` | `id`, `judul`, `penulis`, `penerbit`, `sumber`, `waktu_masuk`, `isbn` |
-| `katalog` | `id`, `judul`, `penulis`, `penerbit`, `penerbit_sumber`, `stok` (default 1), `status_konfirmasi` (default `otomatis`), `waktu_masuk`, `isbn`, `kategori` |
-| `cache_scan` | `hash_gambar` (PK), `judul`, `penulis`, `kategori` |
-| `cache_metadata` | `judul_penulis_key` (PK), `penerbit`, `sumber`, `isbn` |
-| view `katalog_publik` | `SELECT * FROM katalog WHERE status_konfirmasi = 'terkonfirmasi'` |
-
-## Status
-
-| Bagian | Status |
-|---|---|
-| `rag_manual` di C++ (add, list, edit, hapus, import) | selesai dan diuji |
-| `katalog` (stok, dedup, view `katalog_publik`) | belum |
-| `cache_metadata`, `cache_scan` | belum |
-| Jalur ISBN lokal (checksum, cache, rag_manual) | belum |
-| Panggilan Open Library dan Colab | belum (butuh libcurl atau perantara Python) |
-
-Isi `rag_manual` sekarang sekitar 190 buku. Tabel lain di database lama cuma data uji.
-
-## Temuan kualitas data (perlu dibersihkan)
-
-- Nama penerbit tidak seragam ("Kepustakaan Populer Gramedia" vs "(KPG)",
-  "Deepublish" vs "Deeppublish").
-- Penulis keliru pada beberapa judul: *The Stranger*, *The Great Gatsby*, *Wonder*.
-- ISBN dobel antar buku berbeda, dan satu ISBN hanya 12 digit.
-- Sisa format katalog perpustakaan di judul dan penulis (` : `, `[sumber elektornis]`,
-  `[dan 7 lainya]`, gelar seperti "S.Psi., M.A.").
-- Kolom `sumber` seluruhnya `input_manual`, jadi tidak bisa dibedakan asalnya.
-
-## Catatan teknis dan temuan
-
-- **Transaksi:** impor dalam satu transaksi jauh lebih cepat daripada tanpa transaksi.
-  Ukuran di sandbox Linux (`-O2`): 5.000 baris sekitar 1,2 detik vs 4,7 detik.
-  Angka di laptop akan berbeda, rasionya yang penting. Belum diukur di laptop sendiri.
-- **Waktu tumbuh kuadratik:** 20.000 baris butuh sekitar 18,5 detik. Penyebabnya
-  pengecekan "buku sudah ada?" (`LOWER(judul)`, `LOWER(penulis)`) memindai seluruh
-  tabel tiap baris karena tidak ada indeks. Belum diperbaiki.
-- **Ide cache ISBN yang gagal:** pencarian ISBN yang tidak ketemu sekarang tidak
-  diingat, jadi diulang terus. Rencana: tabel `cache_isbn` dengan kedaluwarsa
-  7 hari untuk yang gagal.
-- **Potensi sumber isu stok lama:** di notebook, cabang cache lama langsung
-  `return` tanpa menambah stok, sedangkan cabang Open Library menambahnya.
-
-## Masalah terbuka
-
-- `edit` judul atau penulis tidak mengecek duplikat.
-- File backup menumpuk dan perlu dibersihkan manual.
-- `buku.csv` di repo hanya dua baris uji (bukan data asli).
-- Folder proyek berada di dalam OneDrive, yang bisa mengunci atau menimpa file `.db`.
-  Pertimbangkan memindahkan database ke luar OneDrive.
-- Build di MSYS2 CLANG64 belum terverifikasi. `Makefile` memakai `CXX = clang++`,
-  dan toolchain clang belum terpasang karena penyimpanan terbatas.
-
-## Langkah berikutnya (urut)
-
-1. Bersihkan `rag_manual` (penerbit baku, penulis keliru, ISBN bermasalah).
-2. Pasang indeks untuk pengecekan duplikat.
-3. Tabel `katalog` dengan stok dan view `katalog_publik`.
-4. `cache_metadata`, `cache_scan`, lalu `cache_isbn`.
-5. Jalur ISBN lokal tanpa Colab.
-6. Panggilan HTTP (Open Library dan Colab) lewat libcurl atau perantara FastAPI.
-
-## Git
-
-Pastikan `.gitignore` memuat `*.db`, `*.exe`, `*.o`, `*.d`, `*.bak-*`, `rag/build/`, dan `.env`.
+1. Modul `cache/scan/` untuk `cache_scan` (sejajar `cache/metadata/`). Murni cache, tanpa jalur promosi.
+2. Ganti `INSERT OR REPLACE` di notebook dengan upsert yang mempertahankan kolom baru.
+3. Perbaiki bug `_normalisasi_kategori` di notebook (`non_fiksi` terbaca sebagai `fiksi`).
+4. `.gitignore` untuk `build/`, `rag.exe`, `*.db`, dan `*.bak-*`. Pastikan `book_cache.db` dan API key di notebook tidak ikut ter-commit.
+5. Test tertulis untuk parser CSV, upsert, dan promosi.
+6. Pindahkan DB harian ke luar OneDrive.
