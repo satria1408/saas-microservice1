@@ -1,5 +1,7 @@
 # Book Scanner — Progress & Roadmap
 
+Terakhir diperbarui: 3 Oktober 2026
+
 ## Progress Sesi Sebelumnya (Jumat)
 
 **Arsitektur inti:**
@@ -25,7 +27,7 @@
 - Beberapa kali ditemukan sisa kode versi lama yang tidak terhapus penuh saat revisi fungsi, menyebabkan hasil tertimpa kembali — solusinya selalu replace seluruh fungsi, bukan sisipkan potongan.
 - Verifikasi kasus "salah edisi": Cantik Itu Luka, El Principito, Fahrenheit 451 — Open Library sempat mengarah ke edisi/cetakan berbeda dari fisik buku yang di-scan.
 
-## Progress Hari Ini — Fitur Scan Barcode ISBN
+## Progress — Fitur Scan Barcode ISBN
 
 **Masalah yang diselesaikan:** input ISBN manual (13 digit ketik tangan) rawan salah pencet, menyebabkan ISBN nyasar ke buku lain atau tidak ketemu tanpa jelas letak salahnya.
 
@@ -71,31 +73,14 @@ Qwen tidak dilibatkan sama sekali di jalur ini — scan barcode dan scan cover (
 4. Perilaku stok belum konsisten antar jalur (scan foto selalu +1, sebagian jalur ISBN tidak) — bukan bug baru dari fitur ini, melainkan perilaku yang diwarisi dari `cari_dari_isbn`.
 5. Field kategori tidak terisi dari jalur ISBN/barcode, karena sumber kategori sejauh ini hanya dari hasil scan Qwen di foto cover depan.
 
-## Isu Terbuka
+## Isu Terbuka (sisi notebook)
 
 - `NameError` pada fungsi-fungsi kunci (`cari_dari_isbn`, dll) beberapa kali muncul setelah restart runtime karena urutan eksekusi sel tidak dari awal — perlu kebiasaan `Runtime → Run all` setiap sesi baru, dengan sel Live API diletakkan paling akhir.
 - Perilaku stok antar jalur (scan cover vs ISBN manual vs barcode) belum diseragamkan.
 
-## Rencana Jangka Menengah/Panjang
+## Progress — Engine Data C++ (`rag.exe`)
 
-Belum diimplementasikan, masih berupa daftar terbuka:
-
-1. Perluasan RAG manual — memprioritaskan buku pelajaran SD/SMP/SMA dan buku keterampilan (DIY/prakarya), yang diperkirakan volumenya tinggi di perpustakaan sekolah namun jarang terindeks di Open Library.
-2. Deteksi lokasi barcode yang lebih aktif (mis. sliding window atau localisation yang lebih toleran terhadap foto miring), menggantikan heuristik crop rasio-tetap saat ini.
-3. Fallback OCR untuk teks "ISBN ..." sebagai jaring pengaman terakhir sebelum menyerah ke input manual.
-4. Endpoint konfirmasi/tambah-ke-rag_manual langsung dari hasil `isbn_tidak_ketemu`, supaya data rag_manual tumbuh dari pemakaian nyata, bukan hanya input manual di notebook.
-5. Penyeragaman perilaku stok di semua jalur input (scan, ISBN manual, barcode).
-6. Semantic search berbasis embedding untuk pencarian katalog berbasis makna/tema — membutuhkan data tambahan berupa sinopsis singkat per buku (bukan isi buku penuh, untuk menghindari isu hak cipta).
-7. Test case tertulis untuk mendeteksi regresi saat kode berubah, termasuk evaluasi kuantitatif fitur barcode dengan sampel lebih besar.
-8. Rate limit & autentikasi yang lebih ketat di Live API.
-9. Evaluasi arsitektur deployment produksi (Colab + ngrok belum cocok untuk operasional 24/7; opsi GPU cloud perlu estimasi biaya dan model penjadwalan sebelum digunakan produksi).
-
-## Dependensi
-
-```
-pip install zxing-cpp
-```
-## Progress Hari Ini — CRUD `rag_manual` (C++) & Cache Metadata
+Mencakup CRUD `rag_manual`, cache metadata, dan cache scan.
 
 **Tujuan:** data kurasi tidak lagi terkunci di runtime Colab. Menambah atau mengoreksi buku cukup lewat CLI lokal `rag.exe`, tanpa menyalakan sesi Colab. Colab diposisikan sebagai mesin inferensi Qwen saja.
 
@@ -106,15 +91,23 @@ rag/
 ├─ Makefile / build.bat
 └─ src/
    ├─ main.cpp                 ← parse opsi + dispatch
-   ├─ db.h/.cpp                ← RAII SQLite, prepare/bind, skema, backup
+   ├─ db.h/.cpp                ← RAII SQLite, prepare/bind, skema, backup + rotasi
    ├─ util.h/.cpp              ← checksum EAN-13, trim, huruf kecil
    ├─ csv.h/.cpp               ← parser CSV (kutip, CRLF, BOM)
    ├─ crud/                    ← rag_manual: create / read / update / delete
-   └─ cache/metadata/          ← cache_metadata
-      ├─ meta_create.*         ← skema, buat_key, meta_simpan
-      ├─ meta_read.*           ← list + filter status/kata
-      ├─ meta_kelola.*         ← ubah status, hapus per key, bersihkan massal
-      └─ meta_promosi.*        ← cache -> rag_manual (1 transaksi)
+   └─ cache/
+      ├─ metadata/             ← cache_metadata
+      │  ├─ meta_create.*      ← skema, buat_key, meta_simpan
+      │  ├─ meta_read.*        ← list + filter status/kata
+      │  ├─ meta_kelola.*      ← ubah status, hapus per key, bersihkan massal
+      │  ├─ meta_promosi.*     ← cache -> rag_manual (1 transaksi)
+      │  └─ meta_ttl.*         ← masa berlaku (lihat perintah `cache ttl`)
+      └─ scan/                 ← cache_scan (murni cache, tanpa promosi)
+         ├─ scan_model.h       ← struct ScanCache (hash, judul, penulis, kategori)
+         ├─ scan_skema.*       ← pastikan_skema_scan (satu-satunya pembuat tabel)
+         ├─ scan_create.*      ← scan_tambah (upsert berdasarkan hash)
+         ├─ scan_read.*        ← scan_daftar, scan_tampil
+         └─ scan_hapus.*       ← scan_hapus (dengan konfirmasi)
 ```
 
 **Perintah CLI** (`--db path` atau env `RAG_DB`, default `book_cache.db`):
@@ -132,15 +125,30 @@ rag cache hapus <key> [-y]
 rag cache bersihkan [--hari N] [-y]
 rag cache promosi <key> [penerbit] [isbn]
 rag cache add <judul> <penulis> <penerbit> [isbn]
+rag cache ttl                                  (tampilkan status)
+rag cache ttl pasang [ditolak=7] [dipromosikan=0] [baru=90]   (satuan hari)
+rag cache ttl lepas
 
-Opsi: --no-backup
+rag cache scan list [kata]
+rag cache scan get <awalan-hash>
+rag cache scan add <hash> <judul> <penulis> [kategori]
+rag cache scan hapus <awalan-hash> [-y]
+
+Opsi: --db <path>  --no-backup  --simpan-backup N (default 5, minimal 1)
+      --hari N  -y  --tanpa-transaksi  --rinci
 ```
 
-**Konsep cache sementara:** `cache_metadata` adalah tempat singgah hasil lookup (misalnya dari Open Library) sebelum diverifikasi, bukan cache yang kedaluwarsa sendiri. Alurnya:
+Catatan: perilaku rinci `cache ttl` ada di `meta_ttl.cpp`. Argumen dan nilai defaultnya di atas diambil dari `main.cpp`.
+
+**Konsep cache sementara:**
+
+`cache_metadata` adalah tempat singgah hasil lookup (misalnya dari Open Library) sebelum diverifikasi. Alurnya:
 
 ```
 Open Library / scan -> cache_metadata (baru) -> tinjau -> promosi -> rag_manual (terverifikasi, override)
 ```
+
+`cache_scan` adalah cache hasil scan cover: kunci hash gambar (MD5, dihitung di Python), isi judul, penulis, kategori. Foto yang sama tidak diproses Qwen dua kali. Di sisi C++ tabel ini murni cache, tidak punya jalur promosi.
 
 **Kolom baru di `cache_metadata`** (migrasi otomatis, aman untuk DB lama dari notebook): `judul_asli`, `penulis_asli`, `status`, `waktu_masuk`. `judul_asli` dan `penulis_asli` dibutuhkan karena `judul_penulis_key` sudah dinormalisasi dan teks aslinya tidak bisa dipulihkan.
 
@@ -152,45 +160,98 @@ Open Library / scan -> cache_metadata (baru) -> tinjau -> promosi -> rag_manual 
 4. **Status `dipromosikan` tidak bisa diatur manual**, hanya berubah lewat promosi yang benar-benar menyalin data.
 5. **`bersihkan` tidak pernah menghapus entri `ditinjau`.** Tanpa `--hari`, hanya `dipromosikan` dan `ditolak` yang dihapus.
 6. **`buat_key` meniru `_normalisasi_key` di notebook** supaya baris yang ditulis C++ dan Python punya kunci yang sama.
-7. **Backup otomatis** (`<db>.bak-<waktu>`) sebelum perintah yang menulis, dibuat sebelum migrasi skema.
+7. **Backup otomatis** (`<db>.bak-<waktu>`) sebelum perintah yang menulis, dibuat sebelum migrasi skema. Backup dirotasi: hanya `--simpan-backup N` terakhir yang disimpan, dan hanya file yang namanya persis `<db>.bak-YYYYMMDD-HHMMSS` yang boleh ikut terhapus.
 8. **`cache_metadata` dan `rag_manual` tetap satu file DB**, supaya promosi bisa atomik.
+9. **`cache_scan` dibangun sejajar `cache_metadata`** di folder terpisah (`cache/scan/`, file berawalan `scan_`), dan tidak menyentuh kode metadata.
+10. **Skema `cache_scan` aman untuk DB lama.** `pastikan_skema_scan` memakai `CREATE TABLE IF NOT EXISTS` dengan kolom dari notebook (`hash_gambar`, `judul`, `penulis`), lalu menambah `kategori` lewat `ALTER TABLE` hanya jika `PRAGMA table_info` menunjukkan kolom itu belum ada. Polanya sama dengan `rag_manual`. Fungsi ini dipanggil setelah backup, sebelum perintah dijalankan.
+11. **Simpan = upsert** (`INSERT ... ON CONFLICT(hash_gambar) DO UPDATE`, butuh SQLite 3.24+), bukan `INSERT OR REPLACE` seperti di notebook. Hasilnya sama untuk empat kolom sekarang, tapi tidak menghapus-lalu-menyisipkan baris, jadi lebih aman kalau kolom ditambah nanti. Argumen kosong disimpan sebagai `NULL`.
+12. **`get` dan `hapus` menerima awalan hash**, tidak harus 32 karakter penuh. Pencocokan pakai `substr`, bukan `LIKE`, supaya `%` dan `_` tidak jadi wildcard. Awalan harus cocok tepat satu baris: nol berarti "tidak ditemukan", lebih dari satu berarti "ambigu". `hapus` selalu menghapus berdasarkan hash penuh hasil pencarian, bukan awalannya, dan meminta konfirmasi kecuali ada `-y`.
+13. **Hash hanya disimpan sebagai string.** MD5 gambar tetap dihitung di Python, C++ tidak perlu tahu cara menghitungnya.
 
 **Build (Windows, MSYS2 CLANG64):**
 
+Toolchain yang dipakai: clang 22.1.8, target `x86_64-w64-windows-gnu`, pustaka standar libc++ (terlihat dari simbol `std::__1` di pesan linker).
+
 ```powershell
-C:\msys64\usr\bin\pacman.exe -S --needed mingw-w64-clang-x86_64-sqlite3
+C:\msys64\usr\bin\pacman.exe -S --needed mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-sqlite3
 $env:Path = "C:\msys64\clang64\bin;" + $env:Path
 .\build.bat
 ```
 
-`build.bat` memakai daftar file eksplisit dan perlu diedit tiap ada file `.cpp` baru. Makefile memakai wildcard tiga level tapi butuh shell yang punya `mkdir -p` dan `rm` (terminal MSYS2, bukan PowerShell). Flag `-Isrc` wajib.
+Supaya PATH tidak perlu diatur tiap sesi, tambahkan di **User Settings** VS Code (bukan `.vscode/settings.json` di repo, karena path ini khusus laptop):
+
+```json
+"terminal.integrated.env.windows": {
+    "PATH": "C:\\msys64\\clang64\\bin;${env:PATH}"
+}
+```
+
+- `build.bat` memakai daftar file eksplisit dan perlu diedit tiap ada file `.cpp` baru. Lupa menambahkan file tidak menyebabkan error kompilasi, tapi error linker `undefined symbol` (kejadian nyata: `scan_hapus`). Jalan di `cmd` maupun PowerShell.
+- `Makefile` memakai wildcard `src/*.cpp`, `src/crud/*.cpp`, dan `src/cache/*/*.cpp`, tapi butuh shell yang punya `mkdir -p` dan `rm` (terminal MSYS2, bukan PowerShell). `Makefile` tidak melacak header: kalau hanya `.h` yang berubah, jalankan `make clean` lalu `make`.
+- Flag `-Isrc` wajib, karena semua `#include` ditulis dari akar `src/` (contoh: `#include "db.h"`, `#include "cache/scan/scan_read.h"`).
+- `rag.exe` di luar terminal MSYS2 butuh DLL dari `clang64\bin` di PATH.
 
 **Hasil uji:**
 
 - Uji otomatis di sandbox (g++, Linux, skema DB ditiru dari notebook): build 12 objek tanpa warning `-Wall -Wextra`; migrasi skema; alur add -> status -> promosi -> bersihkan; promosi ulang idempoten; entri `ditolak` tidak bisa dipromosikan; ROLLBACK terbukti dengan menggagalkan UPDATE cache lewat trigger; `buat_key` cocok dengan normalisasi Python pada 12 judul sulit (tanda baca, aksen, CJK, penulis kosong), 0 beda.
-- Uji manual di mesin sendiri (clang64): build bersih setelah dua titik nyasar di `meta_kelola.h` dan `meta_create.cpp` dibuang; migrasi pada salinan `book_cache.db` asli; promosi satu entri sampai berstatus `dipromosikan` dengan sumber `rag_manual`.
-- **Belum diuji:** perilaku `bersihkan --hari` pada baris lama notebook yang `waktu_masuk`-nya kosong (dari membaca kode, baris itu tidak pernah lolos kriteria umur); perilaku dengan clang/libc++ di luar mesin ini; sisi Python.
+- Uji manual di mesin sendiri (clang64): build bersih setelah beberapa titik nyasar dibuang: di `meta_kelola.h` dan `meta_create.cpp`, satu baris `buat_backup` ganda di `db.cpp` yang membuat fungsi tampak bersarang, dan isi `meta_promosi.cpp` yang berisi salinan fungsi dari `meta_create.cpp` (error linker `duplicate symbol`). Migrasi pada salinan `book_cache.db` asli; promosi satu entri sampai berstatus `dipromosikan` dengan sumber `rag_manual`.
+- Uji manual `cache scan` (clang64, `build.bat`, pada salinan DB `uji.db`, bukan DB asli):
+  - `add` menyimpan baris baru dan membuat backup.
+  - `add` ulang dengan hash yang sama memperbarui baris (jumlah baris tetap), dan argumen yang tidak diisi tersimpan sebagai `NULL`.
+  - `list` membaca baris asli `cache_scan` dari salinan DB (skema dari notebook cocok dengan tabel asli, termasuk kolom `kategori`); hash tampil disingkat 12 karakter.
+  - `get <awalan>` menampilkan satu baris lengkap; hash yang tidak ada memberi error `hash tidak ditemukan`.
+  - `hapus` meminta konfirmasi: jawaban `n` membatalkan dan baris tetap ada; `-y` menghapus tanpa tanya; hash yang tidak ada memberi error bersih. Baris asli lain tidak tersentuh.
+- **Belum diuji:** perilaku `bersihkan --hari` pada baris lama notebook yang `waktu_masuk`-nya kosong (dari membaca kode, baris itu tidak pernah lolos kriteria umur); error "ambigu" saat awalan hash cocok dengan lebih dari satu baris; build lewat `make` (hanya `build.bat` yang dicoba); `cache scan` dari sisi Python; perilaku dengan clang/libc++ di luar mesin ini.
 
 **Keterbatasan yang diketahui:**
 
 1. **Baris lama dari notebook tidak bisa langsung dipromosikan**, karena `judul_asli` kosong. Jalurnya: `cache add` ulang judul dan penulis aslinya (status tidak tersentuh), lalu `cache promosi`.
 2. **ISBN override tidak valid di `promosi`** hanya memunculkan `[WARN]` dan promosi lanjut dengan ISBN kosong, bukan dibatalkan. Keputusannya belum diambil.
-3. **Notebook memakai `INSERT OR REPLACE` ke `cache_metadata`**, yang mengembalikan `judul_asli`, `penulis_asli`, dan `status` ke default. Harus diganti upsert sebelum notebook dan CLI menulis ke tabel yang sama.
+3. **Notebook memakai `INSERT OR REPLACE` ke `cache_metadata`**, yang mengembalikan `judul_asli`, `penulis_asli`, dan `status` ke default. Harus diganti upsert sebelum notebook dan CLI menulis ke tabel yang sama. Hal serupa berlaku untuk `cache_scan` begitu kolomnya bertambah.
 4. **`cache list` diurutkan `rowid`** (urutan masuk), jadi entri yang sudah dipromosikan tidak naik ke atas.
 5. **`rag.exe` di luar terminal MSYS2** butuh DLL dari `clang64\bin` di PATH.
 6. **Proyek ada di folder OneDrive.** Sinkronisasi bisa mengunci atau menduplikasi file `.db` dan `.bak-*`.
 7. Belum ada `busy_timeout` atau WAL, jadi dua penulis bersamaan ke satu file bisa menghasilkan `database is locked`. Belum ada test tertulis.
+8. **`cache scan` belum punya masa berlaku.** Tabel `cache_scan` belum punya kolom waktu, jadi belum ada pembersihan berdasarkan umur.
+9. **Backup dibuat sebelum validasi dan konfirmasi** untuk semua perintah tulis (mengikuti pola di `main.cpp`), jadi file `.bak-*` tetap terbentuk walau `hapus` dibatalkan atau hash tidak ditemukan. Rotasi membatasi jumlahnya.
+10. **`scan add` dengan argumen kosong menimpa kolom lama menjadi `NULL`** (sama dengan perilaku `INSERT OR REPLACE` di notebook). Ini berbeda dari `rag_manual`, yang memakai `COALESCE` agar nilai kosong tidak menimpa.
+11. **Huruf besar-kecil kategori tidak dinormalisasi di C++.** Baris dari notebook memakai huruf kecil (misalnya `fiksi`), dan nilai yang diketik lewat CLI disimpan apa adanya.
 
 **Isu terbuka:**
 
 - Keputusan perilaku ISBN override tidak valid (batalkan promosi atau lanjut dengan ISBN kosong).
 - Urutan tampil `cache list` (antrean kerja di atas, yang selesai di bawah, atau sebaliknya).
+- Apakah backup sebaiknya dibuat setelah validasi, bukan sebelum, supaya perintah yang gagal atau dibatalkan tidak menghasilkan file backup.
 
 **Rencana berikutnya:**
 
-1. Modul `cache/scan/` untuk `cache_scan` (sejajar `cache/metadata/`). Murni cache, tanpa jalur promosi.
+1. Masa berlaku untuk `cache_scan` (usulan, belum diputuskan): kolom `waktu_masuk` lewat migrasi cek-dulu-baru-`ALTER`, lalu `cache scan bersihkan --hari N`. Baris lama yang `waktu_masuk`-nya `NULL` tidak pernah dihapus. Diuji di salinan DB dulu karena menyentuh tabel berisi data asli.
 2. Ganti `INSERT OR REPLACE` di notebook dengan upsert yang mempertahankan kolom baru.
 3. Perbaiki bug `_normalisasi_kategori` di notebook (`non_fiksi` terbaca sebagai `fiksi`).
-4. `.gitignore` untuk `build/`, `rag.exe`, `*.db`, dan `*.bak-*`. Pastikan `book_cache.db` dan API key di notebook tidak ikut ter-commit.
-5. Test tertulis untuk parser CSV, upsert, dan promosi.
-6. Pindahkan DB harian ke luar OneDrive.
+4. `.gitignore` untuk `build/`, `rag.exe`, `*.db`, `*.db.bak-*`, dan `*.bak`. Pastikan folder `data/` (berisi `book_cache.db` dan backup-nya) tidak ter-track (cek `git ls-files data`), dan API key di notebook tidak ikut ter-commit.
+5. `struct Buku` di `model/`, lalu `daftar()` mengembalikan `std::vector<Buku>` alih-alih langsung mencetak.
+6. Test tertulis untuk parser CSV, upsert, promosi, dan `cache scan`.
+7. Pindahkan DB harian ke luar OneDrive.
+
+## Rencana Jangka Menengah/Panjang
+
+Belum diimplementasikan, masih berupa daftar terbuka:
+
+1. Perluasan RAG manual — memprioritaskan buku pelajaran SD/SMP/SMA dan buku keterampilan (DIY/prakarya), yang diperkirakan volumenya tinggi di perpustakaan sekolah namun jarang terindeks di Open Library.
+2. Deteksi lokasi barcode yang lebih aktif (mis. sliding window atau localisation yang lebih toleran terhadap foto miring), menggantikan heuristik crop rasio-tetap saat ini.
+3. Fallback OCR untuk teks "ISBN ..." sebagai jaring pengaman terakhir sebelum menyerah ke input manual.
+4. Endpoint konfirmasi/tambah-ke-rag_manual langsung dari hasil `isbn_tidak_ketemu`, supaya data rag_manual tumbuh dari pemakaian nyata, bukan hanya input manual di notebook.
+5. Penyeragaman perilaku stok di semua jalur input (scan, ISBN manual, barcode).
+6. Semantic search berbasis embedding untuk pencarian katalog berbasis makna/tema — membutuhkan data tambahan berupa sinopsis singkat per buku (bukan isi buku penuh, untuk menghindari isu hak cipta).
+7. Test case tertulis untuk mendeteksi regresi saat kode berubah, termasuk evaluasi kuantitatif fitur barcode dengan sampel lebih besar.
+8. Rate limit & autentikasi yang lebih ketat di Live API.
+9. Evaluasi arsitektur deployment produksi (Colab + ngrok belum cocok untuk operasional 24/7; opsi GPU cloud perlu estimasi biaya dan model penjadwalan sebelum digunakan produksi).
+
+## Dependensi
+
+Notebook:
+```
+pip install zxing-cpp
+```
+
+Engine C++: clang (MSYS2 CLANG64), SQLite 3.24 atau lebih baru (`mingw-w64-clang-x86_64-sqlite3`).
