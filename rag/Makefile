@@ -1,6 +1,6 @@
 CXX      = clang++
 CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -Isrc
-SRC      = $(wildcard src/*.cpp) $(wildcard src/crud/*.cpp) $(wildcard src/cache/*/*.cpp)
+SRC      = $(wildcard src/*.cpp) $(wildcard src/crud/*.cpp) $(wildcard src/cache/*/*.cpp) $(wildcard src/katalog/*.cpp)
 OBJ      = $(SRC:src/%.cpp=build/%.o)
 
 rag.exe: $(OBJ)
@@ -11,4 +11,4 @@ build/%.o: src/%.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -rf build rag.exe
+	rm -rf build rag.exez

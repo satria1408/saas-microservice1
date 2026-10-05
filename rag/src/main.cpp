@@ -14,6 +14,7 @@
 #include "cache/metadata/meta_promosi.h"
 #include "cache/metadata/meta_read.h"
 #include "cache/metadata/meta_ttl.h"
+#include "cache/scan/scan_bersihkan.h"
 #include "cache/scan/scan_create.h"
 #include "cache/scan/scan_hapus.h"
 #include "cache/scan/scan_read.h"
@@ -23,6 +24,9 @@
 #include "crud/read.h"
 #include "crud/update.h"
 #include "db.h"
+#include "katalog/katalog_read.h"
+#include "katalog/katalog_skema.h"
+#include "katalog/katalog_ubah.h"
 
 struct Opsi {
     std::string db;
@@ -94,7 +98,10 @@ static void perintah_cache_scan(sqlite3* db, const Opsi& o) {
     else if (aksi == "hapus") {
         scan_hapus(db, wajib(arg(3), "cache scan hapus butuh <awalan-hash>"), o.yes);
     }
-    else if (aksi.empty()) throw std::runtime_error("cache scan butuh aksi: list, get, add, atau hapus");
+    else if (aksi == "bersihkan") {
+        scan_bersihkan(db, o.hari, o.yes);
+    }
+    else if (aksi.empty()) throw std::runtime_error("cache scan butuh aksi: list, get, add, hapus, atau bersihkan");
     else throw std::runtime_error("aksi cache scan tidak dikenal: " + aksi);
 }
 
@@ -146,6 +153,31 @@ static void perintah_cache(sqlite3* db, const Opsi& o) {
     else throw std::runtime_error("sub-perintah cache tidak dikenal: " + sub);
 }
 
+// Semua perintah 'rag katalog <aksi> ...'. args[0]="katalog", args[1]=aksi.
+static void perintah_katalog(sqlite3* db, const Opsi& o) {
+    auto arg = [&](size_t i) { return i < o.args.size() ? o.args[i] : std::string(); };
+    const std::string aksi = arg(1);
+
+    if (aksi == "list") {
+        // Argumen pertama dianggap status kalau cocok otomatis/terkonfirmasi,
+        // selain itu dianggap kata kunci.
+        std::string status, kata;
+        if (status_katalog_valid(arg(2))) { status = arg(2); kata = arg(3); }
+        else kata = arg(2);
+        katalog_daftar(db, status, kata);
+    }
+    else if (aksi == "get") {
+        katalog_tampil(db, baca_id(wajib(arg(2), "katalog get butuh <id>"), "katalog get"));
+    }
+    else if (aksi == "konfirmasi") {
+        katalog_konfirmasi(db,
+            baca_id(wajib(arg(2), "katalog konfirmasi butuh <id>"), "katalog konfirmasi"),
+            arg(3), arg(4), arg(5), o.yes);
+    }
+    else if (aksi.empty()) throw std::runtime_error("katalog butuh aksi: list, get, atau konfirmasi");
+    else throw std::runtime_error("aksi katalog tidak dikenal: " + aksi);
+}
+
 int main(int argc, char** argv) {
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
@@ -171,33 +203,74 @@ int main(int argc, char** argv) {
                 "       rag [--db path] cache scan get <awalan-hash>\n"
                 "       rag [--db path] cache scan add <hash> <judul> <penulis> [kategori]\n"
                 "       rag [--db path] cache scan hapus <awalan-hash> [-y]\n"
+                "       rag [--db path] cache scan bersihkan --hari N [-y]\n"
+                "\n"
+                "       rag [--db path] katalog list [otomatis|terkonfirmasi] [kata]\n"
+                "       rag [--db path] katalog get <id>\n"
+                "       rag [--db path] katalog konfirmasi <id> [penerbit] [isbn] [stok] [-y]\n"
+                "                       (\"-\" atau kosong = tidak diubah)\n"
+                "\n"
+                "       rag [--db path] migrasi    (backup dulu, lalu mutakhirkan skema semua tabel)\n"
                 "\n"
                 "Opsi: --no-backup\n";
             return 1;
         }
         const std::string cmd = o.args[0];
         auto arg = [&](size_t i) { return i < o.args.size() ? o.args[i] : std::string(); };
+        const std::string sub = arg(1);
+
+        const bool menulis_katalog = (cmd == "katalog") && (sub == "konfirmasi");
+
+        // Perintah yang murni membaca. Tidak boleh mengubah apa pun, termasuk skema.
+        const bool baca_saja = (cmd == "list") ||
+            (cmd == "katalog" && !menulis_katalog) ||
+            (cmd == "cache" && (sub == "list" ||
+                                (sub == "scan" && (arg(2) == "list" || arg(2) == "get"))));
+
+        const bool menulis_cache = (cmd == "cache") &&
+            (sub == "add" || sub == "status" || sub == "hapus" ||
+             sub == "bersihkan" || sub == "promosi" ||
+             (sub == "ttl" && (arg(2) == "pasang" || arg(2) == "lepas")) ||
+             (sub == "scan" && (arg(2) == "add" || arg(2) == "hapus" ||
+                                arg(2) == "bersihkan")));
+        const bool menulis_rag = (cmd == "add" || cmd == "import" || cmd == "edit" || cmd == "hapus");
 
         DbPtr db = buka_db(o.db);
-        pastikan_skema(db.get());
 
-        if (cmd == "cache") {
-            const std::string sub = arg(1);
-            const bool menulis_cache = (sub == "add" || sub == "status" || sub == "hapus" ||
-                                        sub == "bersihkan" || sub == "promosi" ||
-                                        (sub == "ttl" && (arg(2) == "pasang" || arg(2) == "lepas")) ||
-                                        (sub == "scan" && (arg(2) == "add" || arg(2) == "hapus")));
-            // Backup DULU, baru skema cache dipastikan, supaya migrasi kolom
-            // pertama kali ikut tercatat di salinan sebelum-perubahan.
-            if (menulis_cache && !o.no_backup) buat_backup(o.db, o.simpan_backup);
+        if (cmd == "migrasi") {
+            if (!o.no_backup) buat_backup(o.db, o.simpan_backup);
+            pastikan_skema(db.get());
             pastikan_skema_metadata(db.get());
             pastikan_skema_scan(db.get());
-            perintah_cache(db.get(), o);
+            pastikan_skema_katalog(db.get());
+            std::cout << "[OK] skema rag_manual, cache_metadata, cache_scan, dan katalog sudah mutakhir\n";
             return 0;
         }
 
-        bool menulis = (cmd == "add" || cmd == "import" || cmd == "edit" || cmd == "hapus");
-        if (menulis && !o.no_backup) buat_backup(o.db, o.simpan_backup);
+        if (baca_saja) {
+            jalankan(db.get(), "PRAGMA query_only = ON");
+        } else {
+            // Backup DULU, baru skema dipastikan. Dengan begitu migrasi kolom pertama
+            // kali (misalnya isbn) tidak ikut masuk ke salinan sebelum-perubahan.
+            if ((menulis_cache || menulis_rag || menulis_katalog) && !o.no_backup)
+                buat_backup(o.db, o.simpan_backup);
+            pastikan_skema(db.get());
+            if (cmd == "cache") {
+                pastikan_skema_metadata(db.get());
+                pastikan_skema_scan(db.get());
+            }
+            if (cmd == "katalog") pastikan_skema_katalog(db.get());
+        }
+
+        if (cmd == "katalog") {
+            perintah_katalog(db.get(), o);
+            return 0;
+        }
+
+        if (cmd == "cache") {
+            perintah_cache(db.get(), o);
+            return 0;
+        }
 
         if (cmd == "add")         tambah(db.get(), arg(1), arg(2), arg(3), arg(4));
         else if (cmd == "import") {
@@ -209,7 +282,11 @@ int main(int argc, char** argv) {
         else if (cmd == "hapus")  hapus(db.get(), baca_id(arg(1), "hapus"), o.yes);
         else throw std::runtime_error("perintah tidak dikenal: " + cmd);
     } catch (const std::exception& e) {
-        std::cerr << "[ERROR] " << e.what() << "\n";
+        const std::string pesan = e.what();
+        std::cerr << "[ERROR] " << pesan << "\n";
+        if (pesan.find("no such table") != std::string::npos ||
+            pesan.find("no such column") != std::string::npos)
+            std::cerr << "        Skema DB belum mutakhir. Jalankan: rag --db <path> migrasi\n";
         return 1;
     }
     return 0;

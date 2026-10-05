@@ -21,6 +21,7 @@ DbPtr buka_db(const std::string& path) {
         throw std::runtime_error("Tidak bisa membuka '" + path +
                                  "': " + (mentah ? sqlite3_errmsg(mentah) : "out of memory"));
     }
+    sqlite3_busy_timeout(mentah, 5000); 
     return db;
 }
 

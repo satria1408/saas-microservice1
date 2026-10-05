@@ -27,7 +27,7 @@ void scan_daftar(sqlite3* db, const std::string& kata) {
 
 void scan_tampil(sqlite3* db, const std::string& awalan_hash) {
     auto st = siapkan(db,
-        "SELECT hash_gambar, judul, penulis, kategori FROM cache_scan "
+        "SELECT hash_gambar, judul, penulis, kategori, waktu_masuk FROM cache_scan "
         "WHERE substr(hash_gambar, 1, length(?1)) = ?1 LIMIT 2");
     bind_teks(st.get(), 1, awalan_hash);
 
@@ -37,6 +37,7 @@ void scan_tampil(sqlite3* db, const std::string& awalan_hash) {
 
     ScanCache s{kolom_teks(st.get(), 0), kolom_teks(st.get(), 1),
                 kolom_teks(st.get(), 2), kolom_teks(st.get(), 3)};
+    const std::string waktu = kolom_teks(st.get(), 4);
 
     rc = sqlite3_step(st.get());
     if (rc == SQLITE_ROW)
@@ -46,5 +47,6 @@ void scan_tampil(sqlite3* db, const std::string& awalan_hash) {
     std::cout << "hash     : " << s.hash << "\n"
               << "judul    : " << s.judul << "\n"
               << "penulis  : " << s.penulis << "\n"
-              << "kategori : " << s.kategori << "\n";
+              << "kategori : " << s.kategori << "\n"
+              << "waktu    : " << waktu << "\n";
 }

@@ -1,4 +1,4 @@
-#include "cache/scan/scan_skema.h"
+#include "katalog/katalog_skema.h"
 
 #include <string>
 
@@ -22,13 +22,16 @@ void tambah_kolom_jika_belum(sqlite3* db, const std::string& tabel,
 
 }  // namespace
 
-void pastikan_skema_scan(sqlite3* db) {
+void pastikan_skema_katalog(sqlite3* db) {
     jalankan(db,
-        "CREATE TABLE IF NOT EXISTS cache_scan ("
-        " hash_gambar TEXT PRIMARY KEY,"
-        " judul TEXT, penulis TEXT)");
-    tambah_kolom_jika_belum(db, "cache_scan", "kategori", "TEXT");
-    // Tanpa DEFAULT: SQLite menolak default non-konstan (seperti CURRENT_TIMESTAMP)
-    // pada ALTER TABLE. Baris lama jadi NULL, dan itu disengaja.
-    tambah_kolom_jika_belum(db, "cache_scan", "waktu_masuk", "TEXT");
+        "CREATE TABLE IF NOT EXISTS katalog ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " judul TEXT, penulis TEXT, penerbit TEXT, penerbit_sumber TEXT,"
+        " stok INTEGER DEFAULT 1,"
+        " status_konfirmasi TEXT DEFAULT 'otomatis',"
+        " waktu_masuk TEXT DEFAULT CURRENT_TIMESTAMP)");
+    // isbn dan kategori ditambahkan belakangan di notebook (DAFTAR_MIGRASI), jadi
+    // ditangani seperti kolom tambahan: cek dulu, ALTER hanya kalau belum ada.
+    tambah_kolom_jika_belum(db, "katalog", "isbn", "TEXT");
+    tambah_kolom_jika_belum(db, "katalog", "kategori", "TEXT");
 }
