@@ -10,6 +10,6 @@ clang++ -std=c++17 -O2 -Wall -Wextra -Isrc ^
   src/cache/scan/scan_bersihkan.cpp ^
   src/katalog/katalog_skema.cpp src/katalog/katalog_read.cpp ^
   src/katalog/katalog_ubah.cpp ^
-  src/alur/alur_cari.cpp ^
+  src/alur/alur_cari.cpp src/alur/kemiripan.cpp ^
   -o rag.exe -lsqlite3
 if %errorlevel%==0 (echo Build OK: rag.exe) else (echo Build GAGAL)

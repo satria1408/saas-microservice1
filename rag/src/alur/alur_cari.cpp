@@ -1,10 +1,13 @@
 #include "alur/alur_cari.h"
 
 #include <cctype>
+#include <iomanip>
 #include <iostream>
 #include <optional>
+#include <sstream>
 
-#include "cache/metadata/meta_create.h"  
+#include "alur/kemiripan.h"
+#include "cache/metadata/meta_create.h"  // buat_key
 #include "db.h"
 
 namespace {
@@ -21,6 +24,9 @@ std::string atau_kosong(const std::optional<std::string>& s) {
 }
 
 bool terisi(const std::optional<std::string>& s) { return s && !s->empty(); }
+
+// Sama dengan ambang_batas di cari_di_rag_manual (notebook).
+constexpr double kAmbangMirip = 0.75;
 
 // Sama dengan cari_dari_isbn di notebook: buang spasi dan tanda hubung.
 std::string bersihkan_isbn(const std::string& mentah) {
@@ -101,29 +107,48 @@ HasilCari cari_metadata(sqlite3* db, const std::string& judul, const std::string
     h.jejak.push_back(ada_baris ? "cache_metadata: ada baris tapi penerbit kosong, dilewati"
                                 : "cache_metadata: tidak ada");
 
-    // Langkah 2: rag_manual. Di notebook ini fuzzy (difflib, skor >= 0.75).
-    // Di sini baru pencocokan persis (tanpa beda huruf besar-kecil ASCII).
+    // Langkah 2: rag_manual, fuzzy seperti cari_di_rag_manual di notebook:
+    // skor difflib atas "judul penulis" (huruf kecil), ambil yang tertinggi, minimal 0.75.
     {
-        auto st = siapkan(db,
-            "SELECT penerbit, isbn FROM rag_manual "
-            "WHERE LOWER(judul) = LOWER(?1) AND LOWER(COALESCE(penulis, '')) = LOWER(?2) "
-            "LIMIT 1");
-        bind_teks(st.get(), 1, judul);
-        bind_teks(st.get(), 2, penulis);
-        const int rc = sqlite3_step(st.get());
-        if (rc == SQLITE_ROW) {
+        const std::u32string query = normalisasi_kecil(judul + " " + penulis);
+        auto st = siapkan(db, "SELECT judul, penulis, penerbit, isbn FROM rag_manual");
+        double skor_terbaik = 0.0;
+        bool ada_kandidat = false;
+        std::string j_cocok, p_cocok, penerbit_cocok, isbn_cocok;
+        int rc;
+        while ((rc = sqlite3_step(st.get())) == SQLITE_ROW) {
+            const std::string j = atau_kosong(kolom_opsional(st.get(), 0));
+            const std::string p = atau_kosong(kolom_opsional(st.get(), 1));
+            const double skor = rasio_difflib(query, normalisasi_kecil(j + " " + p));
+            if (skor > skor_terbaik) {  // strict: kalau seri, yang lebih dulu menang (seperti notebook)
+                skor_terbaik = skor;
+                ada_kandidat = true;
+                j_cocok = j;
+                p_cocok = p;
+                penerbit_cocok = atau_kosong(kolom_opsional(st.get(), 2));
+                isbn_cocok = atau_kosong(kolom_opsional(st.get(), 3));
+            }
+        }
+        if (rc != SQLITE_DONE) gagal(db, "baca rag_manual");
+
+        std::ostringstream skor_teks;
+        skor_teks << std::fixed << std::setprecision(3) << skor_terbaik;
+
+        if (ada_kandidat && skor_terbaik >= kAmbangMirip) {
             h.ketemu = true;
-            h.penerbit = atau_kosong(kolom_opsional(st.get(), 0));
-            h.isbn = atau_kosong(kolom_opsional(st.get(), 1));
+            h.penerbit = penerbit_cocok;
+            h.isbn = isbn_cocok;
             h.sumber = "rag_manual";
-            h.jejak.push_back("rag_manual: ketemu (pencocokan persis)");
+            h.jejak.push_back("rag_manual: ketemu (skor " + skor_teks.str() + "): " + j_cocok +
+                              " | " + p_cocok);
             if (h.penerbit.empty()) h.jejak.push_back("catatan: penerbit di rag_manual kosong");
             return h;
         }
-        if (rc != SQLITE_DONE) gagal(db, "baca rag_manual");
+        h.jejak.push_back(ada_kandidat
+            ? "rag_manual: tidak ada yang cukup mirip (skor tertinggi " + skor_teks.str() +
+              " < 0.75): " + j_cocok + " | " + p_cocok
+            : "rag_manual: kosong atau tidak ada yang mirip");
     }
-    h.jejak.push_back("rag_manual: tidak ada (pencocokan persis; notebook memakai fuzzy >= 0.75, "
-                      "jadi bisa ada buku yang ketemu di notebook tapi tidak di sini)");
     h.jejak.push_back("langkah berikutnya di notebook: Open Library (tidak dijalankan di C++)");
     return h;
 }
