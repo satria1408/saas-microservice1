@@ -9,6 +9,7 @@
 #include <windows.h>
 #endif
 
+#include "alur/alur_cari.h"
 #include "cache/metadata/meta_create.h"
 #include "cache/metadata/meta_kelola.h"
 #include "cache/metadata/meta_promosi.h"
@@ -210,6 +211,9 @@ int main(int argc, char** argv) {
                 "       rag [--db path] katalog konfirmasi <id> [penerbit] [isbn] [stok] [-y]\n"
                 "                       (\"-\" atau kosong = tidak diubah)\n"
                 "\n"
+                "       rag [--db path] cari <judul> [penulis]   (telusuri cache_metadata, lalu rag_manual)\n"
+                "       rag [--db path] cari-isbn <isbn>         (telusuri lewat ISBN)\n"
+                "\n"
                 "       rag [--db path] migrasi    (backup dulu, lalu mutakhirkan skema semua tabel)\n"
                 "\n"
                 "Opsi: --no-backup\n";
@@ -222,7 +226,7 @@ int main(int argc, char** argv) {
         const bool menulis_katalog = (cmd == "katalog") && (sub == "konfirmasi");
 
         // Perintah yang murni membaca. Tidak boleh mengubah apa pun, termasuk skema.
-        const bool baca_saja = (cmd == "list") ||
+        const bool baca_saja = (cmd == "list") || (cmd == "cari") || (cmd == "cari-isbn") ||
             (cmd == "katalog" && !menulis_katalog) ||
             (cmd == "cache" && (sub == "list" ||
                                 (sub == "scan" && (arg(2) == "list" || arg(2) == "get"))));
@@ -260,6 +264,16 @@ int main(int argc, char** argv) {
                 pastikan_skema_scan(db.get());
             }
             if (cmd == "katalog") pastikan_skema_katalog(db.get());
+        }
+
+        if (cmd == "cari") {
+            cetak_hasil(cari_metadata(db.get(), wajib(arg(1), "cari butuh <judul> [penulis]"), arg(2)));
+            return 0;
+        }
+
+        if (cmd == "cari-isbn") {
+            cetak_hasil(cari_dari_isbn_lokal(db.get(), wajib(arg(1), "cari-isbn butuh <isbn>")));
+            return 0;
         }
 
         if (cmd == "katalog") {
