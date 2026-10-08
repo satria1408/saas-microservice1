@@ -28,7 +28,9 @@ void pastikan_skema_scan(sqlite3* db) {
         " hash_gambar TEXT PRIMARY KEY,"
         " judul TEXT, penulis TEXT)");
     tambah_kolom_jika_belum(db, "cache_scan", "kategori", "TEXT");
-    // Tanpa DEFAULT: SQLite menolak default non-konstan (seperti CURRENT_TIMESTAMP)
-    // pada ALTER TABLE. Baris lama jadi NULL, dan itu disengaja.
     tambah_kolom_jika_belum(db, "cache_scan", "waktu_masuk", "TEXT");
+    tambah_kolom_jika_belum(db, "cache_scan", "isbn", "TEXT");
+    jalankan(db,
+        "CREATE INDEX IF NOT EXISTS idx_scan_isbn ON cache_scan(isbn) "
+        "WHERE isbn IS NOT NULL");
 }

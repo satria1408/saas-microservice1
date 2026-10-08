@@ -1,6 +1,6 @@
 CXX      = clang++
-CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -Isrc
-SRC      = $(wildcard src/*.cpp) $(wildcard src/crud/*.cpp) $(wildcard src/cache/*/*.cpp) $(wildcard src/katalog/*.cpp) $(wildcard src/alur/*.cpp) $(wildcard src/kontrol/*.cpp)
+CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -Isrc -Isrc/cli
+SRC      = $(wildcard src/*.cpp) $(wildcard src/cli/*.cpp) $(wildcard src/cli/kontrol/*.cpp) $(wildcard src/crud/*.cpp) $(wildcard src/cache/*/*.cpp) $(wildcard src/katalog/*.cpp) $(wildcard src/alur/*.cpp)
 OBJ      = $(SRC:src/%.cpp=build/%.o)
 
 rag.exe: $(OBJ)

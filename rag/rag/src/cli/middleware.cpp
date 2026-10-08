@@ -1,5 +1,6 @@
 #include "middleware.h"
 
+#include <stdexcept>
 #include <string>
 
 #include "cache/metadata/meta_create.h"
@@ -15,10 +16,13 @@ Akses tentukan_akses(const Opsi& o) {
     Akses a;
     a.menulis_katalog = (cmd == "katalog") && (sub == "konfirmasi");
 
+    // 'cache ttl' tanpa aksi hanya menampilkan status (meta_status_ttl cuma SELECT).
+    // 'cache scan isbn' hanya mencari.
     a.baca_saja = (cmd == "list") || (cmd == "cari") || (cmd == "cari-isbn") ||
         (cmd == "katalog" && !a.menulis_katalog) ||
         (cmd == "cache" && (sub == "list" ||
-                            (sub == "scan" && (aksi == "list" || aksi == "get"))));
+                            (sub == "ttl" && aksi.empty()) ||
+                            (sub == "scan" && (aksi == "list" || aksi == "get" || aksi == "isbn"))));
 
     a.menulis_cache = (cmd == "cache") &&
         (sub == "add" || sub == "status" || sub == "hapus" ||
@@ -41,7 +45,14 @@ void jalankan_middleware(sqlite3* db, const Opsi& o) {
         return;
     }
 
-    if (a.menulis() && !o.no_backup) buat_backup(o.db, o.simpan_backup);
+    // Pengaman: setiap perintah valid harus jatuh ke baca_saja atau salah satu menulis_*.
+    // Kalau tidak, ada perintah baru yang lupa diklasifikasikan. Lebih baik gagal keras di
+    // sini daripada diam-diam menjalankan pastikan_skema* tanpa backup.
+    if (!a.menulis())
+        throw std::runtime_error("perintah '" + cmd + "' belum diklasifikasikan sebagai baca/tulis "
+                                 "(periksa tentukan_akses di middleware.cpp)");
+
+    if (!o.no_backup) buat_backup(o.db, o.simpan_backup);
 
     pastikan_skema(db);
     if (cmd == "cache") {

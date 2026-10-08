@@ -17,9 +17,12 @@ void perintah_cache_scan(sqlite3* db, const Opsi& o) {
     else if (aksi == "get") {
         scan_tampil(db, wajib(o.arg(3), "cache scan get butuh <hash>"));
     }
+    else if (aksi == "isbn") {
+        scan_cari_isbn(db, wajib(o.arg(3), "cache scan isbn butuh <isbn>"));
+    }
     else if (aksi == "add") {
-        scan_tambah(db, wajib(o.arg(3), "cache scan add butuh <hash> <judul> <penulis> [kategori]"),
-                    o.arg(4), o.arg(5), o.arg(6));
+        scan_tambah(db, wajib(o.arg(3), "cache scan add butuh <hash> <judul> <penulis> [kategori] [isbn]"),
+                    o.arg(4), o.arg(5), o.arg(6), o.arg(7));
     }
     else if (aksi == "hapus") {
         scan_hapus(db, wajib(o.arg(3), "cache scan hapus butuh <awalan-hash>"), o.yes);
@@ -27,6 +30,6 @@ void perintah_cache_scan(sqlite3* db, const Opsi& o) {
     else if (aksi == "bersihkan") {
         scan_bersihkan(db, o.hari, o.yes);
     }
-    else if (aksi.empty()) throw std::runtime_error("cache scan butuh aksi: list, get, add, hapus, atau bersihkan");
+    else if (aksi.empty()) throw std::runtime_error("cache scan butuh aksi: list, get, isbn, add, hapus, atau bersihkan");
     else throw std::runtime_error("aksi cache scan tidak dikenal: " + aksi);
 }
