@@ -6,4 +6,5 @@ struct ScanCache {
     std::string judul;
     std::string penulis;
     std::string kategori;
+    std::string isbn;
 };
