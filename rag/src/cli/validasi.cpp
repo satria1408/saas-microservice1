@@ -1,9 +1,55 @@
 #include "validasi.h"
 
+#include <initializer_list>
 #include <stdexcept>
 #include <string>
 
+namespace {
+
+bool salah_satu(const std::string& s, std::initializer_list<const char*> daftar) {
+    for (const char* d : daftar)
+        if (s == d) return true;
+    return false;
+}
+
+// Tolak nama perintah yang tidak dikenal SEBELUM DB dibuka. Tanpa ini, middleware sempat
+// menjalankan pastikan_skema* (CREATE TABLE / ALTER) untuk perintah yang ternyata salah ketik.
+// Pesannya sama dengan yang dilempar router dan kontrol (yang tetap ada sebagai jaring kedua).
+void validasi_nama(const Opsi& o) {
+    const std::string cmd = o.arg(0);
+    const std::string sub = o.arg(1);
+    const std::string aksi = o.arg(2);
+
+    if (!salah_satu(cmd, {"add", "import", "list", "edit", "hapus", "cache",
+                          "katalog", "cari", "cari-isbn", "migrasi"}))
+        throw std::runtime_error("perintah tidak dikenal: " + cmd);
+
+    if (cmd == "katalog") {
+        if (sub.empty()) throw std::runtime_error("katalog butuh aksi: list, get, atau konfirmasi");
+        if (!salah_satu(sub, {"list", "get", "konfirmasi"}))
+            throw std::runtime_error("aksi katalog tidak dikenal: " + sub);
+    }
+    else if (cmd == "cache") {
+        if (sub.empty())
+            throw std::runtime_error("cache butuh sub-perintah (jalankan rag tanpa argumen)");
+        if (!salah_satu(sub, {"list", "add", "status", "hapus", "bersihkan", "ttl", "promosi", "scan"}))
+            throw std::runtime_error("sub-perintah cache tidak dikenal: " + sub);
+        if (sub == "ttl" && !aksi.empty() && !salah_satu(aksi, {"pasang", "lepas"}))
+            throw std::runtime_error("cache ttl: aksi harus pasang atau lepas");
+        if (sub == "scan") {
+            if (aksi.empty())
+                throw std::runtime_error("cache scan butuh aksi: list, get, add, hapus, atau bersihkan");
+            if (!salah_satu(aksi, {"list", "get", "add", "hapus", "bersihkan"}))
+                throw std::runtime_error("aksi cache scan tidak dikenal: " + aksi);
+        }
+    }
+}
+
+}  // namespace
+
 void validasi_bentuk(const Opsi& o) {
+    validasi_nama(o);
+
     const std::string cmd = o.arg(0);
     const std::string sub = o.arg(1);
 

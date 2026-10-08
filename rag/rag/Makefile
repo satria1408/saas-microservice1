@@ -1,0 +1,14 @@
+CXX      = clang++
+CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -Isrc
+SRC      = $(wildcard src/*.cpp) $(wildcard src/crud/*.cpp) $(wildcard src/cache/*/*.cpp) $(wildcard src/katalog/*.cpp) $(wildcard src/alur/*.cpp) $(wildcard src/kontrol/*.cpp)
+OBJ      = $(SRC:src/%.cpp=build/%.o)
+
+rag.exe: $(OBJ)
+	$(CXX) $(OBJ) -o $@ -lsqlite3
+
+build/%.o: src/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+clean:
+	rm -rf build rag.exe
