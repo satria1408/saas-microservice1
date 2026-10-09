@@ -114,6 +114,7 @@ Qwen tidak dilibatkan sama sekali di jalur ini — scan barcode dan scan cover (
   - Seluruh `rag/` terkompilasi bersih dengan `-Wall -Wextra` (g++), dan semua `.cpp` terdaftar di `build.bat`.
 - **Uji manual di mesin sendiri (clang64):** `rag cari "Student Hidjoo" "Mas Marco Kartodikromo"` menemukan `Student Hidjo` di `rag_manual` dengan skor 0,986, sama dengan `difflib` asli (0,986301). Jejak pencarian tampil lengkap.
 - **Belum diuji:** `rag cari` dan `cari-isbn` end-to-end pada DB di sandbox (hanya fungsi kemiripan dan kompilasinya); `katalog list/get/konfirmasi`; `cache scan bersihkan`; transaksi baca-lalu-tulis di bawah beban penulis bersamaan; sisi Python memanggil C++.
+- oke gua tadi udah bikin satu penghubung antara cache ada cache_metadata sama cache_scan agar buku memiliki identitas di cache scan wong cache scan cuma hash gambar. jadi agar buku yang sama tidak dianggap buku baru misal beda pencahayaan atau beda tata letak foto nya jadi pas scan buku yang sama tidak dianggap buku baru. paham nga ini fitur yang gua buat siang tadi
 
 **Keterbatasan yang diketahui:**
 
@@ -153,6 +154,7 @@ Qwen tidak dilibatkan sama sekali di jalur ini — scan barcode dan scan cover (
 8. `struct Buku` di `model/`, lalu `daftar()` mengembalikan `std::vector<Buku>` alih-alih langsung mencetak.
 9. Test tertulis untuk parser CSV, upsert, promosi, `cache scan`, dan pencarian (termasuk kasus fuzzy di atas).
 10. Pindahkan DB harian ke luar OneDrive.
+11. gua mau buat fitur baru jadi penghubung data anatara katalog dan ragmanual jadi semisal admin scan buku buku baru di rag manual ga ada buku tersebut terus model nyari tuh di open library ternyata ketemu dong jadi data buku tersebut di simpan di katalog dulu katalog tuh cache versi pencarian open library nah semisal katalog nyimpen data baru habis tuh si ragmanual itu bakal ambil data baru dari open library jadi kalo ada data baru disimpan dicache katalog habis tuh disimpan ke rag manual data katalog itu tidak permanen yang permanen cuma rag manual paham nga. ini disibut relasi antar kode atau relasi antar table
 
 ## Rencana Jangka Menengah/Panjang
 
