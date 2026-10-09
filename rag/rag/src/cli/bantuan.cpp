@@ -15,9 +15,6 @@ void cetak_bantuan() {
         "       rag [--db path] cache hapus <key> [-y]\n"
         "       rag [--db path] cache bersihkan [--hari N] [-y]\n"
         "       rag [--db path] cache promosi <key> [penerbit] [isbn]\n"
-        "       rag [--db path] cache promosi --otomatis [--cek] [--rinci]\n"                       // <-- BARU
-        "                       (naikkan semua entri cache yang lengkap; tidak pernah menimpa\n"     // <-- BARU
-        "                        rag_manual. --cek = lihat saja, tidak menulis apa pun)\n"          // <-- BARU
         "       rag [--db path] cache add <judul> <penulis> <penerbit> [isbn]\n"
         "\n"
         "       rag [--db path] cache scan list [kata]\n"

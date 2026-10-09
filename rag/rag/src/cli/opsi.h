@@ -5,7 +5,6 @@
 struct Opsi {
     std::string db;
     bool no_backup = false, tanpa_transaksi = false, rinci = false, yes = false;
-    bool otomatis = false, cek = false;  // <-- BARU: cache promosi --otomatis [--cek]
     int hari = 0;
     int simpan_backup = 5;
     std::vector<std::string> args;

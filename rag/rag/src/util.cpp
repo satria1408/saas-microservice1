@@ -16,7 +16,7 @@ bool ean13_valid(std::string_view s) {
 std::optional<std::string> bersihkan_isbn(const std::string& mentah) {
     std::string out;
     for (char c : mentah)
-        if (c != '-' && !std::isspace(static_cast<unsigned char>(c))) out += c;
+        if (c != '-' && c != ' ') out += c;
     if (out.empty() || out == "null" || out == "None") return std::nullopt;
     return out;
 }

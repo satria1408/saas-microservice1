@@ -19,7 +19,6 @@ Akses tentukan_akses(const Opsi& o) {
     // 'cache ttl' tanpa aksi hanya menampilkan status (meta_status_ttl cuma SELECT).
     // 'cache scan isbn' hanya mencari.
     a.baca_saja = (cmd == "list") || (cmd == "cari") || (cmd == "cari-isbn") ||
-        (cmd == "cache" && sub == "promosi" && o.otomatis && o.cek) ||   // <-- BARU
         (cmd == "katalog" && !a.menulis_katalog) ||
         (cmd == "cache" && (sub == "list" ||
                             (sub == "ttl" && aksi.empty()) ||

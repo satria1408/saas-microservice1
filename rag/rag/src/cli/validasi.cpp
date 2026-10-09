@@ -63,12 +63,6 @@ void validasi_bentuk(const Opsi& o) {
     const std::string cmd = o.arg(0);
     const std::string sub = o.arg(1);
 
-    // <-- BARU (3 baris di bawah ini)
-    if ((o.otomatis || o.cek) && !(cmd == "cache" && sub == "promosi"))
-        throw std::runtime_error("opsi --otomatis dan --cek hanya untuk: cache promosi");
-    if (o.cek && !o.otomatis)
-        throw std::runtime_error("--cek hanya bisa bersama --otomatis");
-
     if (cmd == "edit") {
         baca_id(o.arg(1), "edit");
         const std::string field = o.arg(2);
@@ -111,12 +105,7 @@ void validasi_bentuk(const Opsi& o) {
             wajib(o.arg(2), "cache hapus butuh <key>");
         }
         else if (sub == "promosi") {
-            if (o.otomatis) {                                     // <-- BARU
-                if (!o.arg(2).empty())
-                    throw std::runtime_error("cache promosi --otomatis tidak memakai <key>, penerbit, atau isbn");
-            } else {
-                wajib(o.arg(2), "cache promosi butuh <key>");
-            }
+            wajib(o.arg(2), "cache promosi butuh <key>");
         }
         else if (sub == "ttl" && o.arg(2) == "pasang") {
             if (!o.arg(3).empty()) baca_angka(o.arg(3), "hari ditolak");

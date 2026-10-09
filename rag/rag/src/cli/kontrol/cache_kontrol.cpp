@@ -48,8 +48,7 @@ void perintah_cache(sqlite3* db, const Opsi& o) {
         else throw std::runtime_error("cache ttl: aksi harus pasang atau lepas");
     }
     else if (sub == "promosi") {
-        if (o.otomatis) meta_promosi_otomatis(db, o.cek, o.rinci);   // <-- BARU
-        else meta_promosi(db, wajib(o.arg(2), "cache promosi butuh <key>"), o.arg(3), o.arg(4));
+        meta_promosi(db, wajib(o.arg(2), "cache promosi butuh <key>"), o.arg(3), o.arg(4));
     }
     else if (sub == "scan") {
         perintah_cache_scan(db, o);
