@@ -19,7 +19,6 @@ Akses tentukan_akses(const Opsi& o) {
     // 'cache ttl' tanpa aksi hanya menampilkan status (meta_status_ttl cuma SELECT).
     // 'cache scan isbn' hanya mencari.
     a.baca_saja = (cmd == "list") || (cmd == "cari") || (cmd == "cari-isbn") ||
-        (cmd == "cache" && sub == "promosi" && o.otomatis && o.cek) ||
         (cmd == "katalog" && !a.menulis_katalog) ||
         (cmd == "cache" && (sub == "list" ||
                             (sub == "ttl" && aksi.empty()) ||
@@ -45,12 +44,6 @@ void jalankan_middleware(sqlite3* db, const Opsi& o) {
         jalankan(db, "PRAGMA query_only = ON");
         return;
     }
-
-    // cache promosi --otomatis (tanpa --cek, yang sudah baca_saja di atas): perintah ini yang membuat
-    // backup sendiri, tepat sebelum tulis pertama, jadi putaran kosong tidak membuat/merotasi
-    // backup. Skemanya juga tidak diubah diam-diam oleh perintah yang biasa dijadwalkan: kalau
-    // belum mutakhir, jalankan 'rag migrasi' (yang membuat backup).
-    if (cmd == "cache" && o.arg(1) == "promosi" && o.otomatis) return;
 
     // Pengaman: setiap perintah valid harus jatuh ke baca_saja atau salah satu menulis_*.
     // Kalau tidak, ada perintah baru yang lupa diklasifikasikan. Lebih baik gagal keras di

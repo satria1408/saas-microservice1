@@ -1,11 +1,11 @@
 #include "meta_promosi.h"
 
 #include <iostream>
-#include <map>             // <-- BARU
+#include <map>
 #include <optional>
 #include <stdexcept>
-#include <unordered_set>   // <-- BARU
-#include <vector>          // <-- BARU
+#include <unordered_set>
+#include <vector>
 
 #include "crud/create.h"
 #include "util.h"
@@ -86,7 +86,7 @@ void meta_promosi(sqlite3* db, const std::string& key,
 }
 
 // ---------------------------------------------------------------------------------------
-// Promosi otomatis                                                      <-- BARU (sampai akhir file)
+// Promosi otomatis
 // ---------------------------------------------------------------------------------------
 namespace {
 
@@ -106,7 +106,8 @@ std::string kunci_judul(const std::string& judul, const std::string& penulis) {
 
 }  // namespace
 
-void meta_promosi_otomatis(sqlite3* db, bool cek, bool rinci) {
+void meta_promosi_otomatis(sqlite3* db, bool cek, bool rinci,
+                           const std::function<void()>& sebelum_tulis) {
     // 1. Calon: entri cache baru/ditinjau, urut dari yang paling dulu masuk.
     std::vector<Calon> calon;
     {
@@ -142,6 +143,7 @@ void meta_promosi_otomatis(sqlite3* db, bool cek, bool rinci) {
     if (!cek) p.emplace(db);
 
     int naik = 0, menunggu = 0, dilewati = 0, gagal_n = 0;
+    bool sudah_siap = false;  // sebelum_tulis sudah dipanggil?
     std::map<std::string, int> alasan_menunggu;
 
     std::cout << (cek ? "Promosi otomatis (CEK SAJA, tidak ada yang ditulis)\n"
@@ -176,6 +178,10 @@ void meta_promosi_otomatis(sqlite3* db, bool cek, bool rinci) {
 
         // 3c. Naikkan. Satu transaksi per baris: satu baris gagal tidak membatalkan yang lain.
         if (!cek) {
+            if (!sudah_siap) {  // backup (dll.) tepat sebelum tulis pertama; error di sini membatalkan semuanya
+                if (sebelum_tulis) sebelum_tulis();
+                sudah_siap = true;
+            }
             try {
                 jalankan(db, "BEGIN");
                 const Hasil h = p->simpan(c.judul, c.penulis, c.penerbit, *c.isbn,
@@ -212,4 +218,6 @@ void meta_promosi_otomatis(sqlite3* db, bool cek, bool rinci) {
         std::cout << "  menunggu - " << alasan << ": " << n << "\n";
     if (!rinci && (menunggu > 0 || dilewati > 0))
         std::cout << "  (tambahkan --rinci untuk melihat baris yang menunggu/dilewati)\n";
+    if (gagal_n > 0)  // exit code tidak 0 supaya kegagalan terlihat oleh penjadwal/notebook
+        throw std::runtime_error(std::to_string(gagal_n) + " baris gagal dipromosikan (lihat [GAGAL] di atas)");
 }
