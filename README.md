@@ -1,6 +1,6 @@
 # Book Scanner — Progress & Roadmap
 
-Terakhir diperbarui: 6 Oktober 2026
+Terakhir diperbarui: 10 Oktober 2026
 
 ## Peta Proyek
 
@@ -192,3 +192,173 @@ pip install -r requirements.txt
 (`fastapi`, `uvicorn[standard]`, `python-multipart`, `requests`, `python-dotenv`, `scikit-learn`)
 
 Engine C++: clang (MSYS2 CLANG64), SQLite 3.24 atau lebih baru (`mingw-w64-clang-x86_64-sqlite3`).
+
+10 0ktober 2026
+
+## Database
+
+| Pengaturan | Keterangan |
+|---|---|
+| `--db path` | pakai file DB ini |
+| variabel `RAG_DB` | dipakai kalau `--db` tidak diberikan |
+| bawaan | `book_cache.db` |
+
+File DB harus **sudah ada**. rag tidak membuat DB baru kalau path salah, tetapi error:
+`Tidak bisa membuka '<path>'`.
+
+Tabel: `rag_manual` (permanen), `cache_metadata`, `cache_scan`, `katalog`.
+
+## Perintah
+
+Jalankan `rag` tanpa argumen untuk bantuan lengkap.
+
+```
+rag [--db path] add <judul> <penulis> <penerbit> [isbn]
+rag [--db path] import file.csv [--tanpa-transaksi] [--rinci]
+rag [--db path] list [kata]
+rag [--db path] edit <id> <judul|penulis|penerbit|isbn> <nilai>
+rag [--db path] hapus <id> [-y]
+
+rag [--db path] cache list [baru|ditinjau|dipromosikan|ditolak] [kata]
+rag [--db path] cache status <key> <baru|ditinjau|ditolak>
+rag [--db path] cache hapus <key> [-y]
+rag [--db path] cache bersihkan [--hari N] [-y]
+rag [--db path] cache promosi <key> [penerbit] [isbn]
+rag [--db path] cache promosi --otomatis [--cek] [--rinci]
+rag [--db path] cache add <judul> <penulis> <penerbit> [isbn]
+
+rag [--db path] cache scan list [kata]
+rag [--db path] cache scan get <awalan-hash>
+rag [--db path] cache scan add <hash> <judul> <penulis> [kategori] [isbn]
+rag [--db path] cache scan isbn <isbn>
+rag [--db path] cache scan hapus <awalan-hash> [-y]
+rag [--db path] cache scan bersihkan --hari N [-y]
+
+rag [--db path] katalog list [otomatis|terkonfirmasi] [kata]
+rag [--db path] katalog get <id>
+rag [--db path] katalog konfirmasi <id> [penerbit] [isbn] [stok] [-y]
+
+rag [--db path] cari <judul> [penulis]
+rag [--db path] cari-isbn <isbn>
+rag [--db path] migrasi
+```
+
+### Opsi
+
+| Opsi | Fungsi |
+|---|---|
+| `--db path` | pakai file DB ini |
+| `--hari N` | batas umur dalam hari (`cache bersihkan`, `cache scan bersihkan`) |
+| `--simpan-backup N` | simpan N backup terakhir (bawaan 5, minimal 1) |
+| `--no-backup` | jangan buat backup sebelum perintah yang menulis |
+| `--tanpa-transaksi` | `import` tanpa satu transaksi besar |
+| `--rinci` | keterangan per baris (`import`, `cache promosi --otomatis`) |
+| `-y` | lewati pertanyaan konfirmasi |
+| `--otomatis` | hanya untuk `cache promosi` |
+| `--cek` | hanya bersama `--otomatis`: lihat saja, tidak menulis |
+
+## Cara kerja
+
+```
+main.cpp -> baca_opsi -> validasi_bentuk -> buka_db -> jalankan_middleware
+         -> router -> kontrol -> modul domain
+```
+
+1. **`validasi_bentuk`** (`src/cli/validasi.cpp`) menolak masukan yang salah **sebelum DB dibuka**:
+   nama perintah, argumen wajib, `<id>` (angka, maksimal 18 digit), file CSV yang tidak bisa dibuka,
+   dan ISBN.
+2. **Middleware** (`src/cli/middleware.cpp`) mengklasifikasi perintah:
+   - perintah **baca-saja** (`list`, `cari`, `cari-isbn`, `katalog list/get`, `cache list`,
+     `cache scan list/get/isbn`, `cache promosi --otomatis --cek`) berjalan dengan
+     `PRAGMA query_only = ON`;
+   - perintah yang **menulis** membuat backup lebih dulu, lalu memastikan skema.
+     (`cache promosi --otomatis` mengatur backup-nya sendiri.)
+3. Kesalahan dilempar sebagai `std::runtime_error`. `main` mencetak `[ERROR] <pesan>` dan keluar
+   dengan kode 1.
+
+### Backup
+
+Sebelum perintah yang menulis, rag menyalin DB ke `<db>.bak-YYYYMMDD-HHMMSS`.
+
+- Dua backup dalam **detik yang sama** diberi akhiran dua digit: `...-02`, `...-03`, dan seterusnya.
+  Backup yang sudah ada **tidak pernah ditimpa**. Nomor dipilih setelah yang tertinggi yang ada,
+  bukan mengisi celah, supaya backup terbaru selalu terurut paling akhir.
+- Rotasi menyimpan `--simpan-backup N` backup terbaru (bawaan 5). Hanya nama yang persis
+  berformat di atas yang dihitung dan dibuang, jadi file lain di folder yang sama aman.
+- Kalau sudah ada 99 backup pada detik yang sama, perintah berhenti dengan pesan
+  `terlalu banyak backup dalam satu detik` dan tidak menimpa apa pun.
+- Backup adalah salinan file mentah. Kalau proses lain (misalnya API) sedang menulis ke DB yang sama,
+  hentikan dulu sebelum menjalankan perintah tulis rag.
+
+### Aturan ISBN
+
+- `cache scan add` mewajibkan ISBN-13 berawalan 978/979 dengan checksum benar.
+- `edit ... isbn` memeriksa checksum EAN-13.
+
+### Catatan lain
+
+- Kolom `waktu` pada `cache scan` memakai UTC (`datetime('now')` SQLite).
+- `cari <judul>` tanpa penulis bisa gagal mencocokkan judul yang ada, karena skor kemiripan ikut
+  memperhitungkan penulis. Sertakan penulis kalau hasilnya "tidak ketemu".
+
+## Perubahan terbaru
+
+| # | Berkas | Sebelum | Sesudah |
+|---|---|---|---|
+| 1 | `src/db.cpp` | Dua perintah tulis dalam satu detik menghasilkan nama backup sama, backup kedua menimpa yang pertama | Akhiran `-02`, `-03`, ... dan tidak pernah menimpa; rotasi menerima akhiran baru |
+| 2 | `src/cli/validasi.cpp` | `rag import file_tidak_ada.csv` membuat backup (dan merotasi backup lama) baru lalu error | File dicek dulu sebelum DB dibuka; tanpa backup |
+| 3 | `src/cli/opsi.cpp` | `rag hapus 99999999999999999999` hanya mencetak `[ERROR] stoll` | `baca_id` membatasi 18 digit dengan pesan jelas (berlaku juga untuk `edit` dan `katalog get/konfirmasi`) |
+| 4 | `src/cli/bantuan.cpp` | Bantuan tertinggal dari kode | Memuat `[isbn]`, `cache scan isbn`, dan 9 opsi |
+| 5 | `src/cache/scan/scan_create.cpp` | `cache scan add` pada hash yang sama menimpa kategori dengan kosong dan mereset `waktu_masuk` | `judul`, `penulis`, `kategori`, `isbn` memakai `COALESCE`; `waktu_masuk` hanya diisi saat insert pertama |
+
+Stok pada `katalog konfirmasi` sudah divalidasi (angka, maksimal 6 digit) sebelum konversi, jadi
+tidak ikut diubah.
+
+## Menguji
+
+> **Selalu uji di salinan DB.** Tanpa `RAG_DB`, rag memakai `book_cache.db` yang asli.
+
+```cmd
+copy /y uji_tes.db uji_coba.db
+set RAG_DB=uji_coba.db
+echo %RAG_DB%
+```
+
+| Uji | Perintah | Harapan |
+|---|---|---|
+| Backup bertabrakan | `rag add "T1" "P" "X" & rag add "T2" "P" "X"` lalu `dir /b uji_coba.db.bak-*` | Dua backup baru; kalau jatuh di detik yang sama, salah satunya berakhiran `-02` |
+| Import tidak ada | `rag import file_tidak_ada.csv` | Hanya `[ERROR] Tidak bisa membuka CSV: ...`, tanpa `[backup]` |
+| ID terlalu panjang | `rag hapus 99999999999999999999` | `... butuh <id> berupa angka (maksimal 18 digit)` |
+| Bantuan | `rag` | Memuat `[isbn]`, `cache scan isbn`, dan blok `Opsi:` |
+| Scan add hash sama | `add` dengan kategori dan ISBN, jeda 3 detik, `add` lagi tanpa keduanya, `get` | Kategori dan ISBN tetap, `waktu` sama dengan sebelumnya |
+
+Bersihkan setelah selesai:
+
+```cmd
+del uji_coba.db.bak-*
+del uji_coba.db
+set RAG_DB=
+```
+
+## Struktur
+
+```
+src/
+  main.cpp  db.*  csv.*  util.*
+  cli/        opsi, validasi, middleware, router, bantuan, kontrol/*
+  crud/       create, read, update, delete
+  cache/      metadata/*, scan/*
+  katalog/    katalog_read, katalog_ubah, katalog_skema
+  alur/       alur_cari, kemiripan
+```
+
+## Git
+
+Jangan masukkan hasil build, DB, dan backup ke repo. Contoh `.gitignore`:
+
+```
+*.exe
+*.db
+*.bak-*
+*.zip
+```
