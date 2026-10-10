@@ -11,8 +11,8 @@ int baca_angka(const std::string& s, const char* nama) {
 }
 
 long long baca_id(const std::string& s, const char* perintah) {
-    if (s.empty() || s.find_first_not_of("0123456789") != std::string::npos)
-        throw std::runtime_error(std::string(perintah) + " butuh <id> berupa angka");
+    if (s.empty() || s.size() > 18 || s.find_first_not_of("0123456789") != std::string::npos)
+        throw std::runtime_error(std::string(perintah) + " butuh <id> berupa angka (maksimal 18 digit)");
     return std::stoll(s);
 }
 

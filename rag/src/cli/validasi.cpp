@@ -1,6 +1,7 @@
 #include "validasi.h"
 #include "util.h"
 
+#include <fstream>
 #include <initializer_list>
 #include <stdexcept>
 #include <string>
@@ -89,6 +90,10 @@ void validasi_bentuk(const Opsi& o) {
     }
     else if (cmd == "import") {
         wajib(o.arg(1), "import butuh <file.csv>");
+        // Sebelum DB dibuka: kalau file tidak ada, jangan sampai ada backup yang dibuat (dan
+        // backup lama dirotasi) untuk perintah yang pasti gagal. Pesan sama dengan csv.cpp.
+        if (!std::ifstream(o.arg(1), std::ios::binary))
+            throw std::runtime_error("Tidak bisa membuka CSV: " + o.arg(1));
     }
     else if (cmd == "katalog" && sub == "konfirmasi") {
         baca_id(wajib(o.arg(2), "katalog konfirmasi butuh <id>"), "katalog konfirmasi");

@@ -28,15 +28,17 @@ void scan_tambah(sqlite3* db, const std::string& hash, const std::string& judul,
                                      "' bukan ISBN-13 yang valid (awalan 978/979 dan checksum benar)");
     }
 
-    // isbn memakai COALESCE: menyimpan ulang hash yang sama tanpa ISBN tidak
-    // menghapus barcode yang sudah tercatat.
+    // judul, penulis, kategori, dan isbn memakai COALESCE: menyimpan ulang hash yang sama
+    // dengan nilai kosong tidak menghapus data yang sudah tercatat. waktu_masuk hanya diisi
+    // saat insert pertama (tidak ada di DO UPDATE SET).
     auto st = siapkan(db,
         "INSERT INTO cache_scan (hash_gambar, judul, penulis, kategori, isbn, waktu_masuk) "
         "VALUES (?, ?, ?, ?, ?, datetime('now')) "
         "ON CONFLICT(hash_gambar) DO UPDATE SET "
-        "judul = excluded.judul, penulis = excluded.penulis, "
-        "kategori = excluded.kategori, isbn = COALESCE(excluded.isbn, isbn), "
-        "waktu_masuk = excluded.waktu_masuk");
+        "judul = COALESCE(excluded.judul, judul), "
+        "penulis = COALESCE(excluded.penulis, penulis), "
+        "kategori = COALESCE(excluded.kategori, kategori), "
+        "isbn = COALESCE(excluded.isbn, isbn)");
     bind_teks(st.get(), 1, hash);
     bind_opsional(st.get(), 2, kosong_jadi_null(judul));
     bind_opsional(st.get(), 3, kosong_jadi_null(penulis));

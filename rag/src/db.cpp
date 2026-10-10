@@ -1,5 +1,6 @@
 #include "db.h"
 
+#include <cstdio>
 #include <ctime>
 #include <filesystem>
 #include <iostream>
@@ -70,14 +71,22 @@ void pastikan_skema(sqlite3* db) {
     if (!ada_isbn) jalankan(db, "ALTER TABLE rag_manual ADD COLUMN isbn TEXT");
 }
 
-// Nama harus persis "<file>.bak-YYYYMMDD-HHMMSS", supaya file lain tidak ikut terhapus.
+// Nama harus persis "<file>.bak-YYYYMMDD-HHMMSS" atau "<file>.bak-YYYYMMDD-HHMMSS-NN"
+// (NN = dua digit, 02..99, untuk backup yang jatuh pada detik yang sama), supaya file lain
+// tidak ikut terhapus.
 static bool nama_backup_valid(const std::string& nama, const std::string& awalan) {
-    if (nama.size() != awalan.size() + 15) return false;
+    const size_t dasar = awalan.size() + 15;
+    if (nama.size() != dasar && nama.size() != dasar + 3) return false;
     if (nama.compare(0, awalan.size(), awalan) != 0) return false;
     for (size_t i = 0; i < 15; ++i) {
         const char c = nama[awalan.size() + i];
         if (i == 8) { if (c != '-') return false; }
         else if (!std::isdigit(static_cast<unsigned char>(c))) return false;
+    }
+    if (nama.size() == dasar + 3) {
+        if (nama[dasar] != '-') return false;
+        if (!std::isdigit(static_cast<unsigned char>(nama[dasar + 1])) ||
+            !std::isdigit(static_cast<unsigned char>(nama[dasar + 2]))) return false;
     }
     return true;
 }
@@ -88,8 +97,26 @@ void buat_backup(const std::string& path, int simpan) {
     std::time_t t = std::time(nullptr);
     char buf[32];
     std::strftime(buf, sizeof buf, "%Y%m%d-%H%M%S", std::localtime(&t));
-    std::string tujuan = path + ".bak-" + buf;
-    fs::copy_file(path, tujuan, fs::copy_options::overwrite_existing);
+    const std::string dasar = path + ".bak-" + buf;
+    // Jangan pernah menimpa backup yang ada: kalau detik ini sudah punya backup (perintah tulis
+    // lain dalam detik yang sama), tambahkan akhiran -02, -03, ... (dua digit supaya urutan
+    // string tetap kronologis). Nomor dipilih SETELAH yang tertinggi yang ada, bukan mengisi
+    // celah: kalau nama dasar sudah dibuang rotasi, memakainya lagi akan membuat backup
+    // terbaru terurut paling lama dan langsung dibuang.
+    int tertinggi = fs::exists(dasar) ? 1 : 0;
+    for (int n = 2; n <= 99; ++n) {
+        char akhiran[8];
+        std::snprintf(akhiran, sizeof akhiran, "-%02d", n);
+        if (fs::exists(dasar + akhiran)) tertinggi = n;
+    }
+    std::string tujuan = dasar;
+    if (tertinggi > 0) {
+        if (tertinggi >= 99) throw std::runtime_error("terlalu banyak backup dalam satu detik: " + dasar);
+        char akhiran[8];
+        std::snprintf(akhiran, sizeof akhiran, "-%02d", tertinggi + 1);
+        tujuan = dasar + akhiran;
+    }
+    fs::copy_file(path, tujuan, fs::copy_options::none);
     std::cout << "[backup] " << tujuan << "\n";
 
     // Rotasi. Gagal merotasi (mis. file dikunci OneDrive) tidak boleh membatalkan perintah.
