@@ -23,3 +23,15 @@ ENV/
 *.bak-*
 rag/build/
 *.db
+
+# hasil build
+rag.exe
+*.o
+
+# database dan backup: data, bukan kode
+*.db
+*.db-journal
+*.db.bak-*
+
+# skrip bantu tes lokal
+umur.py

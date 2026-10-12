@@ -127,6 +127,8 @@ void validasi_bentuk(const Opsi& o) {
             if (!o.arg(3).empty()) baca_angka(o.arg(3), "hari ditolak");
             if (!o.arg(4).empty()) baca_angka(o.arg(4), "hari dipromosikan");
             if (!o.arg(5).empty()) baca_angka(o.arg(5), "hari baru");
+            if (!o.arg(6).empty()) baca_angka(o.arg(6), "hari scan");
+            if (!o.arg(7).empty()) baca_angka(o.arg(7), "hari katalog");
         }
         else if (sub == "scan") {
             const std::string aksi = o.arg(2);

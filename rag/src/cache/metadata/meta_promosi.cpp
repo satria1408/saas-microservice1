@@ -4,7 +4,7 @@
 #include <map>
 #include <optional>
 #include <stdexcept>
-#include <unordered_set>
+#include <unordered_map>
 #include <vector>
 
 #include "crud/create.h"
@@ -91,7 +91,14 @@ void meta_promosi(sqlite3* db, const std::string& key,
 namespace {
 
 struct Calon {
-    std::string key, judul, penulis, penerbit;
+    std::string key, judul, penulis, penerbit, status;
+    std::optional<std::string> isbn;  // sudah dibersihkan
+};
+
+// Data buku yang SUDAH ada di rag_manual (pemenang). Dipakai untuk mendeteksi duplikat dan
+// untuk menyamakan baris cache yang kalah.
+struct Menang {
+    std::string penerbit;
     std::optional<std::string> isbn;  // sudah dibersihkan
 };
 
@@ -112,7 +119,8 @@ void meta_promosi_otomatis(sqlite3* db, bool cek, bool rinci,
     std::vector<Calon> calon;
     {
         auto st = siapkan(db,
-            "SELECT judul_penulis_key, judul_asli, penulis_asli, penerbit, isbn"
+            "SELECT judul_penulis_key, judul_asli, penulis_asli, penerbit, isbn,"
+            " COALESCE(status,'baru')"
             " FROM cache_metadata WHERE COALESCE(status,'baru') IN ('baru','ditinjau')"
             " ORDER BY COALESCE(waktu_masuk,''), judul_penulis_key");
         while (sqlite3_step(st.get()) == SQLITE_ROW) {
@@ -123,34 +131,45 @@ void meta_promosi_otomatis(sqlite3* db, bool cek, bool rinci,
             c.penerbit = trim(teks_atau_kosong(st.get(), 3));
             if (sqlite3_column_type(st.get(), 4) != SQLITE_NULL)
                 c.isbn = bersihkan_isbn(kolom_teks(st.get(), 4));
+            c.status = kolom_teks(st.get(), 5);
             calon.push_back(std::move(c));
         }
     }
 
-    // 2. Yang sudah ada di rag_manual (ISBN dibersihkan dengan fungsi yang sama).
-    std::unordered_set<std::string> isbn_ada, judul_ada;
+    // 2. Yang sudah ada di rag_manual (ISBN dibersihkan dengan fungsi yang sama). Kalau ada
+    //    kembar di rag_manual, yang id-nya paling kecil dianggap pemenang.
+    std::unordered_map<std::string, Menang> menang_judul, menang_isbn;
     {
-        auto st = siapkan(db, "SELECT isbn, LOWER(COALESCE(judul,'')), LOWER(COALESCE(penulis,''))"
-                              " FROM rag_manual");
+        auto st = siapkan(db,
+            "SELECT isbn, LOWER(COALESCE(judul,'')), LOWER(COALESCE(penulis,'')),"
+            " COALESCE(penerbit,'') FROM rag_manual ORDER BY id");
         while (sqlite3_step(st.get()) == SQLITE_ROW) {
+            Menang m;
+            m.penerbit = trim(kolom_teks(st.get(), 3));
             if (sqlite3_column_type(st.get(), 0) != SQLITE_NULL)
-                if (auto b = bersihkan_isbn(kolom_teks(st.get(), 0))) isbn_ada.insert(*b);
-            judul_ada.insert(kunci_judul(kolom_teks(st.get(), 1), kolom_teks(st.get(), 2)));
+                m.isbn = bersihkan_isbn(kolom_teks(st.get(), 0));
+            menang_judul.emplace(kunci_judul(kolom_teks(st.get(), 1), kolom_teks(st.get(), 2)), m);
+            if (m.isbn) menang_isbn.emplace(*m.isbn, m);
         }
     }
 
     std::optional<Penyimpan> p;
     if (!cek) p.emplace(db);
 
-    int naik = 0, menunggu = 0, dilewati = 0, gagal_n = 0;
-    bool sudah_siap = false;  // sebelum_tulis sudah dipanggil?
+    int naik = 0, menunggu = 0, dilewati = 0, disamakan = 0, gagal_n = 0;
+    bool sudah_siap = false; 
+    auto siap_tulis = [&] {   
+        if (!sudah_siap) {
+            if (sebelum_tulis) sebelum_tulis();
+            sudah_siap = true;
+        }
+    };
     std::map<std::string, int> alasan_menunggu;
 
     std::cout << (cek ? "Promosi otomatis (CEK SAJA, tidak ada yang ditulis)\n"
                       : "Promosi otomatis\n");
 
     for (const Calon& c : calon) {
-        // 3a. Harus lengkap.
         std::string tunggu;
         if (c.judul.empty()) tunggu = "judul_asli kosong";
         else if (c.penulis.empty()) tunggu = "penulis kosong";
@@ -165,23 +184,62 @@ void meta_promosi_otomatis(sqlite3* db, bool cek, bool rinci,
         }
 
         // 3b. Tidak boleh menimpa: yang sudah ada di rag_manual (atau baru naik di putaran
-        //     ini) dibiarkan sampai TTL membuangnya.
+        //     ini) tidak naik.
         const std::string kj = kunci_judul(c.judul, c.penulis);
+        const Menang* pemenang = nullptr;
         std::string duplikat;
-        if (judul_ada.count(kj)) duplikat = "judul+penulis sudah ada di rag_manual";
-        else if (isbn_ada.count(*c.isbn)) duplikat = "ISBN sudah ada di rag_manual";
-        if (!duplikat.empty()) {
+        if (auto it = menang_judul.find(kj); it != menang_judul.end()) {
+            pemenang = &it->second;
+            duplikat = "judul+penulis sudah ada di rag_manual";
+        } else if (auto it2 = menang_isbn.find(*c.isbn); it2 != menang_isbn.end()) {
+            pemenang = &it2->second;
+            duplikat = "ISBN sudah ada di rag_manual";
+        }
+        if (pemenang) {
             ++dilewati;
             if (rinci) std::cout << "  [lewati]   " << c.key << ": " << duplikat << "\n";
+
+            // Samakan baris cache yang kalah dengan pemenangnya. Lookup (cache dulu, baru
+            // rag_manual) akan menampilkan baris cache ini; tanpa penyamaan, data yang kalah
+            // tetap menang. Hanya status 'baru': 'ditinjau' sedang dipegang admin (mungkin
+            // berisi koreksi yang belum dipromosikan). Nilai kosong di pemenang tidak dipakai.
+            if (c.status == "baru") {
+                const std::string penerbit_baru =
+                    pemenang->penerbit.empty() ? c.penerbit : pemenang->penerbit;
+                const std::optional<std::string> isbn_baru =
+                    pemenang->isbn ? pemenang->isbn : c.isbn;
+                if (penerbit_baru != c.penerbit || isbn_baru != c.isbn) {
+                    if (!cek) {
+                        siap_tulis();
+                        try {
+                            auto upd = siapkan(db,
+                                "UPDATE cache_metadata SET penerbit=?, isbn=?, sumber='rag_manual'"
+                                " WHERE judul_penulis_key=? AND COALESCE(status,'baru')='baru'");
+                            bind_teks(upd.get(), 1, penerbit_baru);
+                            bind_opsional(upd.get(), 2, isbn_baru);
+                            bind_teks(upd.get(), 3, c.key);
+                            if (sqlite3_step(upd.get()) != SQLITE_DONE) gagal(db, "samakan cache");
+                        } catch (const std::exception& e) {
+                            ++gagal_n;
+                            std::cerr << "  [GAGAL]    " << c.key << ": " << e.what() << "\n";
+                            continue;
+                        }
+                    }
+                    ++disamakan;
+                    std::cout << "  [samakan]  " << c.key << ":";
+                    if (penerbit_baru != c.penerbit)
+                        std::cout << " penerbit '" << c.penerbit << "' -> '" << penerbit_baru << "'";
+                    if (isbn_baru != c.isbn)
+                        std::cout << " ISBN " << c.isbn.value_or("-") << " -> " << isbn_baru.value_or("-");
+                    std::cout << " (mengikuti rag_manual)\n";
+                }
+            }
             continue;
         }
 
         // 3c. Naikkan. Satu transaksi per baris: satu baris gagal tidak membatalkan yang lain.
         if (!cek) {
-            if (!sudah_siap) {  // backup (dll.) tepat sebelum tulis pertama; error di sini membatalkan semuanya
-                if (sebelum_tulis) sebelum_tulis();
-                sudah_siap = true;
-            }
+            siap_tulis();
             try {
                 jalankan(db, "BEGIN");
                 const Hasil h = p->simpan(c.judul, c.penulis, c.penerbit, *c.isbn,
@@ -205,8 +263,11 @@ void meta_promosi_otomatis(sqlite3* db, bool cek, bool rinci,
                 continue;
             }
         }
-        judul_ada.insert(kj);
-        isbn_ada.insert(*c.isbn);
+        Menang m;
+        m.penerbit = c.penerbit;
+        m.isbn = c.isbn;
+        menang_judul.emplace(kj, m);
+        menang_isbn.emplace(*c.isbn, m);
         ++naik;
         std::cout << "  [naik]     " << c.key << ": '" << c.judul << "' -> rag_manual (penerbit: "
                   << c.penerbit << ", ISBN: " << *c.isbn << ")\n";
@@ -216,6 +277,8 @@ void meta_promosi_otomatis(sqlite3* db, bool cek, bool rinci,
               << " menunggu, " << dilewati << " dilewati (sudah ada), " << gagal_n << " gagal.\n";
     for (const auto& [alasan, n] : alasan_menunggu)
         std::cout << "  menunggu - " << alasan << ": " << n << "\n";
+    if (disamakan > 0)
+        std::cout << "  disamakan dengan rag_manual: " << disamakan << (cek ? " (akan)" : "") << "\n";
     if (!rinci && (menunggu > 0 || dilewati > 0))
         std::cout << "  (tambahkan --rinci untuk melihat baris yang menunggu/dilewati)\n";
     if (gagal_n > 0)  // exit code tidak 0 supaya kegagalan terlihat oleh penjadwal/notebook

@@ -46,15 +46,8 @@ void jalankan_middleware(sqlite3* db, const Opsi& o) {
         return;
     }
 
-    // cache promosi --otomatis (tanpa --cek, yang sudah baca_saja di atas): perintah ini yang membuat
-    // backup sendiri, tepat sebelum tulis pertama, jadi putaran kosong tidak membuat/merotasi
-    // backup. Skemanya juga tidak diubah diam-diam oleh perintah yang biasa dijadwalkan: kalau
-    // belum mutakhir, jalankan 'rag migrasi' (yang membuat backup).
-    if (cmd == "cache" && o.arg(1) == "promosi" && o.otomatis) return;
+    if (cmd == "cache" && ((o.arg(1) == "promosi" && o.otomatis) || o.arg(1) == "bersihkan")) return;
 
-    // Pengaman: setiap perintah valid harus jatuh ke baca_saja atau salah satu menulis_*.
-    // Kalau tidak, ada perintah baru yang lupa diklasifikasikan. Lebih baik gagal keras di
-    // sini daripada diam-diam menjalankan pastikan_skema* tanpa backup.
     if (!a.menulis())
         throw std::runtime_error("perintah '" + cmd + "' belum diklasifikasikan sebagai baca/tulis "
                                  "(periksa tentukan_akses di middleware.cpp)");

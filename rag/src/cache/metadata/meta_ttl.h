@@ -1,14 +1,23 @@
 #pragma once
 
+#include <functional>
 #include <string>
 
 #include "db.h"
 
-// Pasang aturan TTL. Satuan hari, 0 = status itu tidak pernah dibuang otomatis.
-// 'ditinjau' tidak pernah dibuang. Aturan dijalankan trigger setiap ada INSERT
-// ke cache_metadata, dari penulis mana pun (rag.exe maupun notebook Python).
-void meta_pasang_ttl(sqlite3* db, int hari_ditolak, int hari_dipromosikan, int hari_baru);
+struct AturanTtl {
+    int meta_ditolak = 7;
+    int meta_dipromosikan = 0;
+    int meta_baru = 90;
+    int scan = 90;
+    int katalog_otomatis = 90;
+};
 
-// Cabut trigger TTL (trigger pengisi waktu_masuk dibiarkan, tidak berbahaya).
-void meta_lepas_ttl(sqlite3* db);
-void meta_status_ttl(sqlite3* db);
+void ttl_pasang(sqlite3* db, const AturanTtl& aturan);
+
+void ttl_lepas(sqlite3* db);
+
+void ttl_status(sqlite3* db);
+
+void ttl_bersihkan(sqlite3* db, int hari_override, bool yes,
+                   const std::function<void()>& sebelum_tulis = {});

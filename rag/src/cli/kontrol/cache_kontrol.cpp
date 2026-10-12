@@ -33,18 +33,23 @@ void perintah_cache(sqlite3* db, const Opsi& o) {
         meta_hapus(db, wajib(o.arg(2), "cache hapus butuh <key>"), o.yes);
     }
     else if (sub == "bersihkan") {
-        meta_bersihkan(db, o.hari, o.yes);
+        ttl_bersihkan(db, o.hari, o.yes, [&o] {
+            if (!o.no_backup) buat_backup(o.db, o.simpan_backup);
+        });
     }
     else if (sub == "ttl") {
         const std::string aksi = o.arg(2);
-        if (aksi.empty()) meta_status_ttl(db);
+        if (aksi.empty()) ttl_status(db);
         else if (aksi == "pasang") {
-            int ditolak = o.arg(3).empty() ? 7  : baca_angka(o.arg(3), "hari ditolak");
-            int promosi = o.arg(4).empty() ? 0  : baca_angka(o.arg(4), "hari dipromosikan");
-            int baru    = o.arg(5).empty() ? 90 : baca_angka(o.arg(5), "hari baru");
-            meta_pasang_ttl(db, ditolak, promosi, baru);
+            AturanTtl a; 
+            if (!o.arg(3).empty()) a.meta_ditolak       = baca_angka(o.arg(3), "hari ditolak");
+            if (!o.arg(4).empty()) a.meta_dipromosikan  = baca_angka(o.arg(4), "hari dipromosikan");
+            if (!o.arg(5).empty()) a.meta_baru          = baca_angka(o.arg(5), "hari baru");
+            if (!o.arg(6).empty()) a.scan               = baca_angka(o.arg(6), "hari scan");
+            if (!o.arg(7).empty()) a.katalog_otomatis   = baca_angka(o.arg(7), "hari katalog");
+            ttl_pasang(db, a);
         }
-        else if (aksi == "lepas") meta_lepas_ttl(db);
+        else if (aksi == "lepas") ttl_lepas(db);
         else throw std::runtime_error("cache ttl: aksi harus pasang atau lepas");
     }
     else if (sub == "promosi") {

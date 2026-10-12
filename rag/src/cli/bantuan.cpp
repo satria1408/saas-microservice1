@@ -14,6 +14,12 @@ void cetak_bantuan() {
         "       rag [--db path] cache status <key> <baru|ditinjau|ditolak>\n"
         "       rag [--db path] cache hapus <key> [-y]\n"
         "       rag [--db path] cache bersihkan [--hari N] [-y]\n"
+        "                       (jalankan aturan TTL SEKARANG di cache_metadata, cache_scan, katalog;\n"
+        "                        --hari N = ganti umur untuk baru/scan/katalog otomatis)\n"
+        "       rag [--db path] cache ttl                 (status aturan dan isi tabel)\n"
+        "       rag [--db path] cache ttl pasang [ditolak] [dipromosikan] [baru] [scan] [katalog]\n"
+        "                       (hari; 0 = tidak dibuang; bawaan 7 0 90 90 90)\n"
+        "       rag [--db path] cache ttl lepas\n"
         "       rag [--db path] cache promosi <key> [penerbit] [isbn]\n"
         "       rag [--db path] cache promosi --otomatis [--cek] [--rinci]\n"                       // <-- BARU
         "                       (naikkan semua entri cache yang lengkap; tidak pernah menimpa\n"     // <-- BARU
