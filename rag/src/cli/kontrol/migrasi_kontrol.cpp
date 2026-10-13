@@ -8,7 +8,7 @@
 #include "katalog/katalog_skema.h"
 
 void perintah_migrasi(sqlite3* db, const Opsi& o) {
-    if (!o.no_backup) buat_backup(o.db, o.simpan_backup);
+    if (!o.no_backup) buat_backup(db, o.db, o.simpan_backup);
     pastikan_skema(db);
     pastikan_skema_metadata(db);
     pastikan_skema_scan(db);

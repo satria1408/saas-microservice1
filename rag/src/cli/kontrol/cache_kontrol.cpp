@@ -33,15 +33,15 @@ void perintah_cache(sqlite3* db, const Opsi& o) {
         meta_hapus(db, wajib(o.arg(2), "cache hapus butuh <key>"), o.yes);
     }
     else if (sub == "bersihkan") {
-        ttl_bersihkan(db, o.hari, o.yes, [&o] {
-            if (!o.no_backup) buat_backup(o.db, o.simpan_backup);
+        ttl_bersihkan(db, o.hari, o.yes, [&o, db] {
+            if (!o.no_backup) buat_backup(db, o.db, o.simpan_backup);
         });
     }
     else if (sub == "ttl") {
         const std::string aksi = o.arg(2);
         if (aksi.empty()) ttl_status(db);
         else if (aksi == "pasang") {
-            AturanTtl a; 
+            AturanTtl a;
             if (!o.arg(3).empty()) a.meta_ditolak       = baca_angka(o.arg(3), "hari ditolak");
             if (!o.arg(4).empty()) a.meta_dipromosikan  = baca_angka(o.arg(4), "hari dipromosikan");
             if (!o.arg(5).empty()) a.meta_baru          = baca_angka(o.arg(5), "hari baru");
@@ -54,8 +54,8 @@ void perintah_cache(sqlite3* db, const Opsi& o) {
     }
     else if (sub == "promosi") {
         if (o.otomatis)
-            meta_promosi_otomatis(db, o.cek, o.rinci, [&o] {
-                if (!o.no_backup) buat_backup(o.db, o.simpan_backup);
+            meta_promosi_otomatis(db, o.cek, o.rinci, [&o, db] {
+                if (!o.no_backup) buat_backup(db, o.db, o.simpan_backup);
             });
         else meta_promosi(db, wajib(o.arg(2), "cache promosi butuh <key>"), o.arg(3), o.arg(4));
     }

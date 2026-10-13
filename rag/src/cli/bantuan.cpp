@@ -43,6 +43,10 @@ void cetak_bantuan() {
         "\n"
         "       rag [--db path] migrasi    (backup dulu, lalu mutakhirkan skema semua tabel)\n"
         "\n"
+        "       rag [--db path] wal                    (status: journal_mode, file -wal, lokasi)\n"
+        "       rag [--db path] wal pasang [--paksa]   (backup dulu, lalu pindah ke mode WAL;\n"
+        "                                               ditolak di OneDrive/drive jaringan kecuali --paksa)\n"
+        "       rag [--db path] wal lepas              (backup dulu, lalu kembali ke mode DELETE)\n"
         "Opsi:\n"
         "  --db path           pakai file DB ini (bawaan: book_cache.db, atau variabel RAG_DB)\n"
         "  --hari N            batas umur dalam hari (cache bersihkan, cache scan bersihkan)\n"
@@ -52,5 +56,6 @@ void cetak_bantuan() {
         "  --rinci             tampilkan keterangan per baris (import, cache promosi --otomatis)\n"
         "  -y                  lewati pertanyaan konfirmasi\n"
         "  --otomatis          hanya untuk cache promosi: naikkan semua entri yang lengkap\n"
-        "  --cek               hanya bersama --otomatis: lihat saja, tidak menulis apa pun\n";
+        "  --cek               hanya bersama --otomatis: lihat saja, tidak menulis apa pun\n"
+        "  --paksa             hanya untuk wal pasang: lewati pengecekan lokasi\n";
 }

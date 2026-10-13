@@ -28,4 +28,9 @@ std::string kolom_teks(sqlite3_stmt* st, int i);
 void jalankan(sqlite3* db, const char* sql);
 
 void pastikan_skema(sqlite3* db);
-void buat_backup(const std::string& path, int simpan = 5);
+
+void buat_backup(sqlite3* db, const std::string& path, int simpan = 5);
+
+std::string lokasi_berisiko(const std::string& path);
+
+void aktifkan_wal(sqlite3* db, const std::string& path, bool paksa = false);

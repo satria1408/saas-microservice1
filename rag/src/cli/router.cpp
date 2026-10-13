@@ -8,6 +8,7 @@
 #include "kontrol/katalog_kontrol.h"
 #include "kontrol/migrasi_kontrol.h"
 #include "kontrol/rag_kontrol.h"
+#include "kontrol/wal_kontrol.h"
 
 void arahkan(sqlite3* db, const Opsi& o) {
     const std::string cmd = o.arg(0);
@@ -17,6 +18,7 @@ void arahkan(sqlite3* db, const Opsi& o) {
     else if (cmd == "cari-isbn") perintah_cari_isbn(db, o);
     else if (cmd == "katalog")   perintah_katalog(db, o);
     else if (cmd == "cache")     perintah_cache(db, o);
+    else if (cmd == "wal")       perintah_wal(db, o);
     else if (cmd == "add" || cmd == "import" || cmd == "list" ||
              cmd == "edit" || cmd == "hapus")
                                  perintah_rag(db, o);

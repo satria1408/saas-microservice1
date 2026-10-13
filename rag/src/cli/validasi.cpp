@@ -32,13 +32,18 @@ void validasi_nama(const Opsi& o) {
     const std::string aksi = o.arg(2);
 
     if (!salah_satu(cmd, {"add", "import", "list", "edit", "hapus", "cache",
-                          "katalog", "cari", "cari-isbn", "migrasi"}))
+                          "katalog", "cari", "cari-isbn", "migrasi", "wal"}))
         throw std::runtime_error("perintah tidak dikenal: " + cmd);
 
     if (cmd == "katalog") {
         if (sub.empty()) throw std::runtime_error("katalog butuh aksi: list, get, atau konfirmasi");
         if (!salah_satu(sub, {"list", "get", "konfirmasi"}))
             throw std::runtime_error("aksi katalog tidak dikenal: " + sub);
+    }
+    else if (cmd == "wal") {
+        if (!sub.empty() && !salah_satu(sub, {"pasang", "lepas"}))
+            throw std::runtime_error("aksi wal tidak dikenal: " + sub);
+        if (!aksi.empty()) throw std::runtime_error("wal tidak memakai argumen tambahan: " + aksi);
     }
     else if (cmd == "cache") {
         if (sub.empty())
@@ -69,6 +74,8 @@ void validasi_bentuk(const Opsi& o) {
         throw std::runtime_error("opsi --otomatis dan --cek hanya untuk: cache promosi");
     if (o.cek && !o.otomatis)
         throw std::runtime_error("--cek hanya bisa bersama --otomatis");
+    if (o.paksa && !(cmd == "wal" && sub == "pasang"))
+        throw std::runtime_error("opsi --paksa hanya untuk: wal pasang");
 
     if (cmd == "edit") {
         baca_id(o.arg(1), "edit");

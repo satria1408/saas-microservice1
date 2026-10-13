@@ -41,7 +41,8 @@ Opsi baca_opsi(int argc, char** argv) {
         else if (a == "--tanpa-transaksi") o.tanpa_transaksi = true;
         else if (a == "--rinci") o.rinci = true;
         else if (a == "--otomatis") o.otomatis = true;   // <-- BARU
-        else if (a == "--cek") o.cek = true;             // <-- BARU
+        else if (a == "--cek") o.cek = true;
+        else if (a == "--paksa") o.paksa = true;
         else if (a == "-y") o.yes = true;
         else if (a.size() > 1 && a[0] == '-' && !std::isdigit(static_cast<unsigned char>(a[1])))
             throw std::runtime_error("opsi tidak dikenal: " + a);

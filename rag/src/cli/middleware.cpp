@@ -37,7 +37,7 @@ Akses tentukan_akses(const Opsi& o) {
 
 void jalankan_middleware(sqlite3* db, const Opsi& o) {
     const std::string cmd = o.arg(0);
-    if (cmd == "migrasi") return;
+    if (cmd == "migrasi" || cmd == "wal") return;
 
     const Akses a = tentukan_akses(o);
 
@@ -52,7 +52,7 @@ void jalankan_middleware(sqlite3* db, const Opsi& o) {
         throw std::runtime_error("perintah '" + cmd + "' belum diklasifikasikan sebagai baca/tulis "
                                  "(periksa tentukan_akses di middleware.cpp)");
 
-    if (!o.no_backup) buat_backup(o.db, o.simpan_backup);
+    if (!o.no_backup) buat_backup(db, o.db, o.simpan_backup);
 
     pastikan_skema(db);
     if (cmd == "cache") {
