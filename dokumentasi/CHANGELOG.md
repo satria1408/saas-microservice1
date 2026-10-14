@@ -93,6 +93,28 @@ Format: yang terbaru di atas. Belum ada nomor versi, jadi tiap bagian diberi tan
 - `katalog konfirmasi` rawan lost-update.
 - Trigger TTL menghapus baris lama diam-diam saat ada INSERT.
 
+- # Changelog
+
+## Unreleased
+
+### Ditambah
+- `tes_rag.py`: 45 tes e2e untuk rag.exe.
+- `tes.bat`: build lalu jalankan tes.
+- `.gitignore`: abaikan `*.db`, `*.db-wal`, `*.db-shm`, `*.bak-*`, `rag.exe`.
+- Dokumentasi: README, CHANGELOG, STRUKTUR.
+
+### Usulan PR (perlu diperbaiki)
+1. Tes untuk `import`, `cari`, `katalog`, `cache scan/ttl/bersihkan/promosi`.
+2. Tes `wal lepas` saat DB dikunci program lain.
+3. Versi skema lewat `PRAGMA user_version` + migrasi bernomor, ganti pola `ALTER TABLE` yang
+   diulang di `db.cpp`, `meta_create.cpp`, `meta_ttl.cpp`, `scan_skema.cpp`.
+4. `meta_simpan` cek-lalu-tulis tanpa transaksi: pakai `BEGIN IMMEDIATE` atau satu upsert.
+5. Backup di setiap perintah tulis tidak akan kuat untuk API: jadikan terjadwal/manual.
+6. `cari` mengambil semua baris `rag_manual`: ukur dulu, optimasi kalau data membesar.
+7. Statistik cache (hit/miss) untuk menilai aturan umur dan kapasitas.
+8. Tes kontrak `buat_key` (C++) dan `_normalisasi_key()` (Python) pakai daftar contoh yang sama.
+9. Pindahkan repo ke luar OneDrive sebelum `git init`.
+
 
 ## Sebelum 2026-10-13
 
