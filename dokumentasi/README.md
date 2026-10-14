@@ -653,6 +653,41 @@ rag [--db path] migrasi
 | `--otomatis` | hanya untuk `cache promosi` |
 | `--cek` | hanya bersama `--otomatis`: lihat saja, tidak menulis |
 
+# Tes e2e untuk rag.exe
+
+Skrip tes otomatis (kotak hitam) untuk CLI `rag`. Menjalankan `rag.exe` asli terhadap
+file SQLite sementara, lalu mengecek keluaran dan isi DB-nya. Kode di `src/` tidak diubah.
+
+## Kebutuhan
+- `rag.exe` hasil `build.bat`
+- Python 3 (hanya modul bawaan, tanpa pip install)
+
+## Cara pakai
+```bat
+tes.bat                                  :: build ulang rag.exe lalu tes
+tes.bat --salinan "C:\path\db_salinan.db"  :: tambah tes di salinan DB asli
+python tes_rag.py                        :: tes saja, tanpa build ulang
+```
+Opsi: `--rag <path>`, `--salinan <db>`, `--tmp <folder>` (kerja di disk lokal),
+`--simpan-tmp` (jangan hapus folder sementara).
+Exit code 0 = lulus semua, 1 = ada yang gagal, 2 = rag.exe/DB salinan tidak ditemukan.
+
+## Yang dites (45 tes)
+- Validasi argumen: perintah salah ditolak dan tidak membuat backup.
+- CRUD `rag_manual`: add, update duplikat, list, hapus, `--no-backup`, rotasi backup.
+- Cache metadata: add, update, status, penolakan status `dipromosikan`, hapus.
+- WAL: pasang, pasang ulang, tulis/baca di WAL, lepas, data utuh, `integrity_check`.
+- Penolakan WAL di folder sinkronisasi (folder bernama `OneDrive`) dan `--paksa`.
+
+## Yang belum dites
+`import` CSV, `cari`, `katalog`, `cache scan`, `cache ttl`, `cache bersihkan`,
+`cache promosi`, dan `wal lepas` saat DB dipakai program lain.
+
+## Catatan
+- Semua tes memakai DB sementara. DB di `--salinan` hanya disalin, tidak disentuh.
+- Kalau folder temp Windows ada di dalam OneDrive, tes WAL akan ditolak. Pakai `--tmp C:\ragtes`.
+- Tes hijau berarti yang ditulis di tes berjalan benar, bukan berarti tanpa bug.
+
 ## Cara kerja
 
 ```
