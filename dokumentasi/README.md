@@ -492,7 +492,25 @@ Qwen tidak dilibatkan sama sekali di jalur ini — scan barcode dan scan cover (
   - Seluruh `rag/` terkompilasi bersih dengan `-Wall -Wextra` (g++), dan semua `.cpp` terdaftar di `build.bat`.
 - **Uji manual di mesin sendiri (clang64):** `rag cari "Student Hidjoo" "Mas Marco Kartodikromo"` menemukan `Student Hidjo` di `rag_manual` dengan skor 0,986, sama dengan `difflib` asli (0,986301). Jejak pencarian tampil lengkap.
 - **Belum diuji:** `rag cari` dan `cari-isbn` end-to-end pada DB di sandbox (hanya fungsi kemiripan dan kompilasinya); `katalog list/get/konfirmasi`; `cache scan bersihkan`; transaksi baca-lalu-tulis di bawah beban penulis bersamaan; sisi Python memanggil C++.
-- oke gua tadi udah bikin satu penghubung antara cache ada cache_metadata sama cache_scan agar buku memiliki identitas di cache scan wong cache scan cuma hash gambar. jadi agar buku yang sama tidak dianggap buku baru misal beda pencahayaan atau beda tata letak foto nya jadi pas scan buku yang sama tidak dianggap buku baru. paham nga ini fitur yang gua buat siang tadi
+- oke gua tadi udah bikin satu penghubung antara cache ada cache_metadata sama cache_scan agar buku memiliki identitas di cache scan wong cache scan cuma hash gambar. jadi agar buku yang sama tidak dianggap buku baru misal beda pencahayaan atau beda tata letak foto nya jadi pas scan buku yang sama tidak dianggap buku baru. paham nga ini fitur yang gua buat siang tadi.
+- - **Backup aman.** `buat_backup` memakai SQLite backup API, bukan salinan file. Hasilnya
+  konsisten walau ada penulis lain atau DB dalam mode WAL. Alurnya: tulis ke `.tmp`, cek
+  `quick_check`, rename ke `<db>.bak-YYYYMMDD-HHMMSS[-NN]`, baru rotasi backup lama.
+  Backup yang gagal tidak pernah menghapus backup yang sehat.
+- **Perintah `rag wal`.**
+  - `rag wal` : status (journal_mode, synchronous, file -wal/-shm, lokasi)
+  - `rag wal pasang [--paksa]` : backup, lalu pindah ke WAL
+  - `rag wal lepas` : backup, lalu kembali ke mode DELETE
+- **Pengaman WAL.** `wal pasang` menolak DB di folder OneDrive/Dropbox/Google Drive/iCloud,
+  path UNC, dan drive jaringan (kecuali `--paksa`). Penolakan dicek sebelum backup, jadi tidak
+  membuat atau merotasi backup. Hasil `PRAGMA journal_mode` selalu diverifikasi.
+- **`synchronous=NORMAL` hanya untuk DB WAL**, dipasang per koneksi di `buka_db`. Mode lain
+  tetap `FULL`, dan `wal lepas` mengembalikannya ke `FULL`.
+
+## Diuji
+
+Backup, `wal pasang/lepas`, penolakan lokasi, dan skenario DB terkunci diuji di Linux
+(SQLite 3.45.1). Deteksi drive jaringan Windows (`GetDriveTypeA`) belum diuji.
 
 **Keterbatasan yang diketahui:**
 

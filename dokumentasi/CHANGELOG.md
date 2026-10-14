@@ -85,6 +85,15 @@ Format: yang terbaru di atas. Belum ada nomor versi, jadi tiap bagian diberi tan
   `rag_manual` belum ada, jadi baris itu perlu dikonfirmasi (`rag katalog konfirmasi`) sebelum
   waktunya.
 
+  ### Fitur wal
+  - `BEGIN` biasa belum diganti `BEGIN IMMEDIATE` (`cache promosi`, `import`, promosi otomatis).
+- Belum ada UNIQUE index / constraint di level DB, jadi duplikat masih bisa lolos.
+- Tautan cache ke `rag_manual` masih lewat teks, bukan id.
+- Skema belum berversi (`PRAGMA user_version`).
+- `katalog konfirmasi` rawan lost-update.
+- Trigger TTL menghapus baris lama diam-diam saat ada INSERT.
+
+
 ## Sebelum 2026-10-13
 
 Kondisi pada zip awal: CRUD `rag_manual`, `cache_metadata` (promosi manual, status, trigger
