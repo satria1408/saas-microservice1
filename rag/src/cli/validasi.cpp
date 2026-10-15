@@ -32,12 +32,12 @@ void validasi_nama(const Opsi& o) {
     const std::string aksi = o.arg(2);
 
     if (!salah_satu(cmd, {"add", "import", "list", "edit", "hapus", "cache",
-                          "katalog", "cari", "cari-isbn", "migrasi", "wal"}))
+                          "katalog", "cari", "cari-isbn", "cari-hash", "migrasi", "wal"}))
         throw std::runtime_error("perintah tidak dikenal: " + cmd);
 
     if (cmd == "katalog") {
-        if (sub.empty()) throw std::runtime_error("katalog butuh aksi: list, get, atau konfirmasi");
-        if (!salah_satu(sub, {"list", "get", "konfirmasi"}))
+        if (sub.empty()) throw std::runtime_error("katalog butuh aksi: list, get, tambah, impor, atau konfirmasi");
+        if (!salah_satu(sub, {"list", "get", "tambah", "impor", "konfirmasi"}))
             throw std::runtime_error("aksi katalog tidak dikenal: " + sub);
     }
     else if (cmd == "wal") {
@@ -48,10 +48,13 @@ void validasi_nama(const Opsi& o) {
     else if (cmd == "cache") {
         if (sub.empty())
             throw std::runtime_error("cache butuh sub-perintah (jalankan rag tanpa argumen)");
-        if (!salah_satu(sub, {"list", "add", "status", "hapus", "bersihkan", "ttl", "promosi", "scan"}))
+        if (!salah_satu(sub, {"list", "get", "add", "hapus", "kosong", "bersihkan", "scan"}))
             throw std::runtime_error("sub-perintah cache tidak dikenal: " + sub);
-        if (sub == "ttl" && !aksi.empty() && !salah_satu(aksi, {"pasang", "lepas"}))
-            throw std::runtime_error("cache ttl: aksi harus pasang atau lepas");
+        if (sub == "kosong") {
+            if (aksi.empty()) throw std::runtime_error("cache kosong butuh aksi: add, list, atau hapus");
+            if (!salah_satu(aksi, {"add", "list", "hapus"}))
+                throw std::runtime_error("aksi cache kosong tidak dikenal: " + aksi);
+        }
         if (sub == "scan") {
             if (aksi.empty())
                 throw std::runtime_error("cache scan butuh aksi: list, get, isbn, add, hapus, atau bersihkan");
@@ -69,11 +72,6 @@ void validasi_bentuk(const Opsi& o) {
     const std::string cmd = o.arg(0);
     const std::string sub = o.arg(1);
 
-    // <-- BARU (3 baris di bawah ini)
-    if ((o.otomatis || o.cek) && !(cmd == "cache" && sub == "promosi"))
-        throw std::runtime_error("opsi --otomatis dan --cek hanya untuk: cache promosi");
-    if (o.cek && !o.otomatis)
-        throw std::runtime_error("--cek hanya bisa bersama --otomatis");
     if (o.paksa && !(cmd == "wal" && sub == "pasang"))
         throw std::runtime_error("opsi --paksa hanya untuk: wal pasang");
 
@@ -86,7 +84,8 @@ void validasi_bentuk(const Opsi& o) {
             throw std::runtime_error("kolom harus: judul, penulis, penerbit, atau isbn");
         if (field == "isbn") {
             const auto b = bersihkan_isbn(nilai);  // kosong = boleh (mengosongkan ISBN)
-            if (b && !ean13_valid(*b)) throw std::runtime_error("ISBN tidak lolos checksum");
+            if (b && !isbn13_valid(*b))
+                throw std::runtime_error("ISBN bukan ISBN-13 yang valid (awalan 978/979 dan checksum benar)");
         }
         else if (field == "judul" && trim(nilai).empty()) {
             throw std::runtime_error("judul tidak boleh kosong");
@@ -102,43 +101,39 @@ void validasi_bentuk(const Opsi& o) {
         if (!std::ifstream(o.arg(1), std::ios::binary))
             throw std::runtime_error("Tidak bisa membuka CSV: " + o.arg(1));
     }
+    else if (cmd == "katalog" && sub == "tambah") {
+        wajib(o.arg(2), "katalog tambah butuh <judul> [penulis] [penerbit] [isbn] [stok]");
+        if (!o.arg(6).empty()) baca_angka(o.arg(6), "stok");
+    }
+    else if (cmd == "katalog" && sub == "impor") {
+        wajib(o.arg(2), "katalog impor butuh <file.csv>");
+        if (!std::ifstream(o.arg(2), std::ios::binary))
+            throw std::runtime_error("Tidak bisa membuka CSV: " + o.arg(2));
+    }
     else if (cmd == "katalog" && sub == "konfirmasi") {
         baca_id(wajib(o.arg(2), "katalog konfirmasi butuh <id>"), "katalog konfirmasi");
     }
+    else if (cmd == "cari-hash") {
+        wajib(o.arg(1), "cari-hash butuh <hash atau awalannya>");
+    }
     else if (cmd == "cache") {
-        if (sub == "add") {
-            // Sama dengan meta_tambah().
-            if (trim(o.arg(2)).empty()) throw std::runtime_error("cache add butuh minimal <judul>");
+        const std::string aksi = o.arg(2);
+        if (sub == "get") {
+            cek_isbn(wajib(o.arg(2), "cache get butuh <isbn>"));
         }
-        else if (sub == "status") {
-            wajib(o.arg(2), "cache status butuh <key> <status>");
-            const std::string status = wajib(o.arg(3), "cache status butuh <key> <status>");
-            // Sama dengan meta_set_status().
-            if (status == "dipromosikan")
-                throw std::runtime_error("status 'dipromosikan' hanya diatur lewat perintah promosi");
-            if (!salah_satu(status, {"baru", "ditinjau", "ditolak"}))
-                throw std::runtime_error("status harus: baru, ditinjau, atau ditolak");
+        else if (sub == "add") {
+            cek_isbn(wajib(o.arg(2), "cache add butuh <isbn> <judul> [penulis] [penerbit] [sumber]"));
+            if (trim(o.arg(3)).empty())
+                throw std::runtime_error("cache add butuh <isbn> <judul> [penulis] [penerbit] [sumber]");
         }
         else if (sub == "hapus") {
-            wajib(o.arg(2), "cache hapus butuh <key>");
+            cek_isbn(wajib(o.arg(2), "cache hapus butuh <isbn>"));
         }
-        else if (sub == "promosi") {
-            if (o.otomatis) {                                     // <-- BARU
-                if (!o.arg(2).empty())
-                    throw std::runtime_error("cache promosi --otomatis tidak memakai <key>, penerbit, atau isbn");
-            } else {
-                wajib(o.arg(2), "cache promosi butuh <key>");
-            }
-        }
-        else if (sub == "ttl" && o.arg(2) == "pasang") {
-            if (!o.arg(3).empty()) baca_angka(o.arg(3), "hari ditolak");
-            if (!o.arg(4).empty()) baca_angka(o.arg(4), "hari dipromosikan");
-            if (!o.arg(5).empty()) baca_angka(o.arg(5), "hari baru");
-            if (!o.arg(6).empty()) baca_angka(o.arg(6), "hari scan");
-            if (!o.arg(7).empty()) baca_angka(o.arg(7), "hari katalog");
+        else if (sub == "kosong" && (aksi == "add" || aksi == "hapus")) {
+            cek_isbn(wajib(o.arg(3), aksi == "add" ? "cache kosong add butuh <isbn>"
+                                                   : "cache kosong hapus butuh <isbn>"));
         }
         else if (sub == "scan") {
-            const std::string aksi = o.arg(2);
             if (aksi == "add") {
                 wajib(o.arg(3), "cache scan add butuh <hash> <judul> <penulis> [kategori] [isbn]");
                 if (!trim(o.arg(7)).empty()) cek_isbn(o.arg(7));

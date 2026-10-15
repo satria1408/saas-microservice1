@@ -9,45 +9,68 @@
 #include "csv.h"
 #include "util.h"
 
-static void ulang(sqlite3_stmt* st) {
+namespace {
+
+void ulang(sqlite3_stmt* st) {
     sqlite3_reset(st);
     sqlite3_clear_bindings(st);
 }
 
+// Jalankan SELECT id ... LIMIT 1; -1 kalau tidak ada. Statement dilepas lagi sebelum menulis.
+long long ambil_id(sqlite3* db, sqlite3_stmt* st) {
+    const int rc = sqlite3_step(st);
+    long long id = -1;
+    if (rc == SQLITE_ROW) id = sqlite3_column_int64(st, 0);
+    else if (rc != SQLITE_DONE) gagal(db, "cari");
+    ulang(st);
+    return id;
+}
+
+}  // namespace
+
 Penyimpan::Penyimpan(sqlite3* db)
     : db_(db),
-      // COALESCE(penulis,'') supaya penulis NULL tetap cocok dengan penulis kosong
-      cari_(siapkan(db, "SELECT id FROM rag_manual WHERE LOWER(judul)=LOWER(?)"
-                        " AND LOWER(COALESCE(penulis,''))=LOWER(?)")),
+      cari_isbn_(siapkan(db, "SELECT id FROM rag_manual WHERE isbn=? LIMIT 1")),
+      // ?3 NULL (buku tanpa ISBN): cocok dengan baris mana pun. ?3 terisi: hanya baris yang
+      // ISBN-nya masih kosong, supaya edisi lain (ISBN beda) tidak tertimpa.
+      cari_judul_(siapkan(db, "SELECT id FROM rag_manual WHERE LOWER(judul)=LOWER(?1)"
+                              " AND LOWER(COALESCE(penulis,''))=LOWER(?2)"
+                              " AND (?3 IS NULL OR isbn IS NULL) ORDER BY id LIMIT 1")),
       // COALESCE(?,kolom): nilai baru kosong -> nilai lama dipertahankan
       upd_(siapkan(db, "UPDATE rag_manual SET penerbit=COALESCE(?,penerbit),"
                        " isbn=COALESCE(?,isbn), sumber=? WHERE id=?")),
       ins_(siapkan(db, "INSERT INTO rag_manual (judul, penulis, penerbit, isbn, sumber)"
                        " VALUES (?,?,?,?,?)")) {}
 
-Hasil Penyimpan::simpan(const std::string& judul, const std::string& penulis,
-                        const std::string& penerbit, const std::string& isbn_mentah,
+Hasil Penyimpan::simpan(const std::string& judul_mentah, const std::string& penulis_mentah,
+                        const std::string& penerbit_mentah, const std::string& isbn_mentah,
                         const std::string& sumber, bool rinci) {
+    const std::string judul = trim(judul_mentah);
+    const std::string penulis = trim(penulis_mentah);
     if (judul.empty()) return Hasil::Lewati;
 
     std::optional<std::string> isbn = bersihkan_isbn(isbn_mentah);
-    if (isbn && !ean13_valid(*isbn)) {
+    if (isbn && !isbn13_valid(*isbn)) {
         std::cerr << "[WARN] " << judul << ": ISBN '" << *isbn
-                  << "' tidak lolos checksum, dikosongkan\n";
+                  << "' bukan ISBN-13 yang valid (978/979 + checksum), dikosongkan\n";
         isbn.reset();
     }
     std::optional<std::string> pener;
-    if (!penerbit.empty()) pener = penerbit;
+    if (!trim(penerbit_mentah).empty()) pener = trim(penerbit_mentah);
 
-    // cari buku yang sama
-    ulang(cari_.get());
-    bind_teks(cari_.get(), 1, judul);
-    bind_teks(cari_.get(), 2, penulis);
-    int rc = sqlite3_step(cari_.get());
     long long id_ada = -1;
-    if (rc == SQLITE_ROW) id_ada = sqlite3_column_int64(cari_.get(), 0);
-    else if (rc != SQLITE_DONE) gagal(db_, "cari");
-    ulang(cari_.get());  // lepaskan sebelum menulis
+    if (isbn) {
+        ulang(cari_isbn_.get());
+        bind_teks(cari_isbn_.get(), 1, *isbn);
+        id_ada = ambil_id(db_, cari_isbn_.get());
+    }
+    if (id_ada < 0) {
+        ulang(cari_judul_.get());
+        bind_teks(cari_judul_.get(), 1, judul);
+        bind_teks(cari_judul_.get(), 2, penulis);
+        bind_opsional(cari_judul_.get(), 3, isbn);
+        id_ada = ambil_id(db_, cari_judul_.get());
+    }
 
     if (id_ada >= 0) {
         ulang(upd_.get());
@@ -57,6 +80,7 @@ Hasil Penyimpan::simpan(const std::string& judul, const std::string& penulis,
         sqlite3_bind_int64(upd_.get(), 4, id_ada);
         if (sqlite3_step(upd_.get()) != SQLITE_DONE) gagal(db_, "update");
         ulang(upd_.get());
+        if (isbn) isbn_masuk_.push_back(*isbn);
         if (rinci) std::cout << "[update] #" << id_ada << " " << judul << "\n";
         return Hasil::Update;
     }
@@ -69,18 +93,22 @@ Hasil Penyimpan::simpan(const std::string& judul, const std::string& penulis,
     bind_teks(ins_.get(), 5, sumber);
     if (sqlite3_step(ins_.get()) != SQLITE_DONE) gagal(db_, "insert");
     ulang(ins_.get());
+    if (isbn) isbn_masuk_.push_back(*isbn);
     if (rinci) std::cout << "[baru]   #" << sqlite3_last_insert_rowid(db_) << " " << judul << "\n";
     return Hasil::Baru;
 }
 
 void tambah(sqlite3* db, const std::string& judul, const std::string& penulis,
-            const std::string& penerbit, const std::string& isbn) {
-    if (judul.empty()) throw std::runtime_error("add butuh minimal <judul>");
+            const std::string& penerbit, const std::string& isbn,
+            std::vector<std::string>* isbn_masuk) {
+    if (trim(judul).empty()) throw std::runtime_error("add butuh minimal <judul>");
     Penyimpan p(db);
     p.simpan(judul, penulis, penerbit, isbn, "input_manual", true);
+    if (isbn_masuk) *isbn_masuk = p.isbn_masuk();
 }
 
-void impor(sqlite3* db, const std::string& path, bool pakai_transaksi, bool rinci) {
+void impor(sqlite3* db, const std::string& path, bool pakai_transaksi, bool rinci,
+           std::vector<std::string>* isbn_masuk) {
     auto data = baca_csv(path);
     if (data.empty()) throw std::runtime_error("CSV kosong");
 
@@ -120,6 +148,7 @@ void impor(sqlite3* db, const std::string& path, bool pakai_transaksi, bool rinc
         if (pakai_transaksi) sqlite3_exec(db, "ROLLBACK", nullptr, nullptr, nullptr);
         throw;  // gagal di tengah -> tidak ada yang tersimpan setengah-setengah
     }
+    if (isbn_masuk) *isbn_masuk = p.isbn_masuk();  // hanya sampai sini kalau berhasil
 
     std::chrono::duration<double, std::milli> ms = std::chrono::steady_clock::now() - mulai;
     std::cout << "\nSelesai: " << baru << " baru, " << upd << " diupdate, " << lewat

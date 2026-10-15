@@ -27,9 +27,8 @@ int main(int argc, char** argv) {
         // Cek bentuk argumen DULU, sebelum DB dibuka dan sebelum backup dibuat.
         validasi_bentuk(o);
 
-        DbPtr db = buka_db(o.db);
-        jalankan_middleware(db.get(), o);  // query_only / backup + skema
-        arahkan(db.get(), o);              // router -> kontrol/*
+        Koneksi k = siapkan_koneksi(o);  // buka inti.db / cache.db sesuai akses, backup, skema
+        arahkan(k, o);                   // router -> kontrol/*
     } catch (const std::exception& e) {
         const std::string pesan = e.what();
         std::cerr << "[ERROR] " << pesan << "\n";

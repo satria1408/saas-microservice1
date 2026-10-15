@@ -1,12 +1,12 @@
 #include "middleware.h"
 
+#include <filesystem>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 
-#include "cache/metadata/meta_create.h"
-#include "cache/scan/scan_skema.h"
 #include "db.h"
-#include "katalog/katalog_skema.h"
+#include "skema/skema_cache.h"
 
 Akses tentukan_akses(const Opsi& o) {
     const std::string cmd = o.arg(0);
@@ -14,50 +14,91 @@ Akses tentukan_akses(const Opsi& o) {
     const std::string aksi = o.arg(2);
 
     Akses a;
-    a.menulis_katalog = (cmd == "katalog") && (sub == "konfirmasi");
-
-    // 'cache ttl' tanpa aksi hanya menampilkan status (meta_status_ttl cuma SELECT).
-    // 'cache scan isbn' hanya mencari.
-    a.baca_saja = (cmd == "list") || (cmd == "cari") || (cmd == "cari-isbn") ||
-        (cmd == "cache" && sub == "promosi" && o.otomatis && o.cek) ||
-        (cmd == "katalog" && !a.menulis_katalog) ||
-        (cmd == "cache" && (sub == "list" ||
-                            (sub == "ttl" && aksi.empty()) ||
-                            (sub == "scan" && (aksi == "list" || aksi == "get" || aksi == "isbn"))));
-
-    a.menulis_cache = (cmd == "cache") &&
-        (sub == "add" || sub == "status" || sub == "hapus" ||
-         sub == "bersihkan" || sub == "promosi" ||
-         (sub == "ttl" && (aksi == "pasang" || aksi == "lepas")) ||
-         (sub == "scan" && (aksi == "add" || aksi == "hapus" || aksi == "bersihkan")));
-
-    a.menulis_rag = (cmd == "add" || cmd == "import" || cmd == "edit" || cmd == "hapus");
+    if (cmd == "list") {
+        a.inti = Peran::Baca;
+    }
+    else if (cmd == "add" || cmd == "import") {
+        a.inti = Peran::Tulis;
+        a.cache = Peran::TulisOpsional;  // buku yang masuk inti dibuang dari cache
+    }
+    else if (cmd == "edit") {
+        a.inti = Peran::Tulis;
+        if (o.arg(2) == "isbn") a.cache = Peran::TulisOpsional;  // args: edit <id> <field> <nilai>
+    }
+    else if (cmd == "hapus") {
+        a.inti = Peran::Tulis;
+    }
+    else if (cmd == "cari" || cmd == "cari-isbn" || cmd == "cari-hash") {
+        a.inti = Peran::Baca;
+        a.cache = Peran::BacaOpsional;
+    }
+    else if (cmd == "katalog") {
+        if (sub == "list" || sub == "get") a.inti = Peran::Baca;
+        else if (sub == "tambah" || sub == "impor") a.inti = Peran::Tulis;
+        else if (sub == "konfirmasi") {
+            a.inti = Peran::Tulis;
+            a.cache = Peran::TulisOpsional;
+        }
+    }
+    else if (cmd == "cache") {
+        const bool baca = sub == "list" || sub == "get" ||
+            (sub == "kosong" && aksi == "list") ||
+            (sub == "scan" && (aksi == "list" || aksi == "get" || aksi == "isbn"));
+        const bool tulis = sub == "add" || sub == "hapus" || sub == "bersihkan" ||
+            (sub == "kosong" && (aksi == "add" || aksi == "hapus")) ||
+            (sub == "scan" && (aksi == "add" || aksi == "hapus" || aksi == "bersihkan"));
+        if (baca) a.cache = Peran::Baca;
+        else if (tulis) a.cache = Peran::Tulis;
+    }
     return a;
 }
 
-void jalankan_middleware(sqlite3* db, const Opsi& o) {
+Koneksi siapkan_koneksi(const Opsi& o) {
     const std::string cmd = o.arg(0);
-    if (cmd == "migrasi" || cmd == "wal") return;
+    Koneksi k;
 
-    const Akses a = tentukan_akses(o);
-
-    if (a.baca_saja) {
-        jalankan(db, "PRAGMA query_only = ON");
-        return;
+    if (cmd == "migrasi" || cmd == "wal") {
+        const bool buat = cmd == "migrasi" && o.arg(1).empty();
+        k.inti = buka_db(o.db, buat ? ModeBuka::Buat : ModeBuka::BacaTulis);
+        return k;
     }
 
-    if (cmd == "cache" && ((o.arg(1) == "promosi" && o.otomatis) || o.arg(1) == "bersihkan")) return;
-
-    if (!a.menulis())
+    const Akses a = tentukan_akses(o);
+    if (a.inti == Peran::Tidak && a.cache == Peran::Tidak)
         throw std::runtime_error("perintah '" + cmd + "' belum diklasifikasikan sebagai baca/tulis "
                                  "(periksa tentukan_akses di middleware.cpp)");
 
-    if (!o.no_backup) buat_backup(db, o.db, o.simpan_backup);
-
-    pastikan_skema(db);
-    if (cmd == "cache") {
-        pastikan_skema_metadata(db);
-        pastikan_skema_scan(db);
+    if (a.inti == Peran::Baca) {
+        k.inti = buka_db(o.db, ModeBuka::HanyaBaca);
+    } else if (a.inti == Peran::Tulis) {
+        k.inti = buka_db(o.db);  // harus sudah ada: salah ketik path tidak membuat DB kosong baru
+        // Backup DULU, baru skema dipastikan, supaya migrasi kolom pertama kali tidak ikut
+        // masuk ke salinan sebelum-perubahan.
+        if (!o.no_backup) buat_backup(k.inti.get(), o.db, o.simpan_backup);
+        pastikan_skema(k.inti.get());
     }
-    if (cmd == "katalog") pastikan_skema_katalog(db);
+
+    std::error_code ec;
+    const bool cache_ada = std::filesystem::exists(o.cache, ec);
+    switch (a.cache) {
+        case Peran::Baca:
+            if (!cache_ada)
+                throw std::runtime_error("cache.db tidak ditemukan: " + o.cache +
+                                         " (buat dengan: rag migrasi, atau tentukan --cache)");
+            k.cache = buka_db(o.cache, ModeBuka::HanyaBaca);
+            break;
+        case Peran::BacaOpsional:
+            if (cache_ada) k.cache = buka_db(o.cache, ModeBuka::HanyaBaca);
+            break;
+        case Peran::Tulis:
+            k.cache = buka_db(o.cache, ModeBuka::Buat);
+            pastikan_skema_cache(k.cache.get());
+            break;
+        case Peran::TulisOpsional:
+            if (cache_ada) k.cache = buka_db(o.cache);
+            break;
+        case Peran::Tidak:
+            break;
+    }
+    return k;
 }

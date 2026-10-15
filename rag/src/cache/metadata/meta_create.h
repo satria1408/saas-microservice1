@@ -1,6 +1,10 @@
 #pragma once
 #include <string>
+
 #include "db.h"
+#include "skema/skema_cache.h"
+#include "skema/skema_inti.h"
+#include "util.h"
 
 // Kunci pencarian, SAMA PERSIS dengan _normalisasi_key() di notebook Python:
 std::string buat_key(const std::string& judul, const std::string& penulis);

@@ -17,7 +17,9 @@ using StmtPtr = std::unique_ptr<sqlite3_stmt, BereskanStmt>;
 
 [[noreturn]] void gagal(sqlite3* db, const std::string& konteks);
 
-DbPtr buka_db(const std::string& path);
+enum class ModeBuka { BacaTulis, HanyaBaca, Buat };
+
+DbPtr buka_db(const std::string& path, ModeBuka mode = ModeBuka::BacaTulis);
 StmtPtr siapkan(sqlite3* db, const char* sql);
 
 void bind_teks(sqlite3_stmt* st, int idx, const std::string& s);
@@ -26,6 +28,8 @@ std::string kolom_teks(sqlite3_stmt* st, int i);
 
 // Jalankan SQL tanpa parameter (BEGIN, COMMIT, dst).
 void jalankan(sqlite3* db, const char* sql);
+bool punya_tabel(sqlite3* db, const std::string& tabel);
+bool punya_kolom(sqlite3* db, const std::string& tabel, const std::string& kolom);
 
 void pastikan_skema(sqlite3* db);
 

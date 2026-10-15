@@ -13,6 +13,7 @@
 #include <system_error>
 #include <vector>
 
+#include "skema/skema_inti.h"
 #include "util.h"
 
 #ifdef _WIN32
@@ -25,17 +26,21 @@
     throw std::runtime_error(konteks + ": " + sqlite3_errmsg(db));
 }
 
-DbPtr buka_db(const std::string& path) {
+DbPtr buka_db(const std::string& path, ModeBuka mode) {
+    int flags = SQLITE_OPEN_READWRITE;
+    if (mode == ModeBuka::HanyaBaca) flags = SQLITE_OPEN_READONLY;
+    else if (mode == ModeBuka::Buat) flags |= SQLITE_OPEN_CREATE;
+
     sqlite3* mentah = nullptr;
-    int rc = sqlite3_open_v2(path.c_str(), &mentah, SQLITE_OPEN_READWRITE, nullptr);
-    DbPtr db(mentah);  // serahkan ke unique_ptr DULU, walau open gagal
+    int rc = sqlite3_open_v2(path.c_str(), &mentah, flags, nullptr);
+    DbPtr db(mentah);
     if (rc != SQLITE_OK) {
         throw std::runtime_error("Tidak bisa membuka '" + path +
                                  "': " + (mentah ? sqlite3_errmsg(mentah) : "out of memory"));
     }
     sqlite3_busy_timeout(mentah, 5000);
 
-     {
+    {
         auto st = siapkan(mentah, "PRAGMA journal_mode");
         const bool wal = sqlite3_step(st.get()) == SQLITE_ROW && huruf_kecil(kolom_teks(st.get(), 0)) == "wal";
         st.reset();
@@ -74,21 +79,20 @@ void jalankan(sqlite3* db, const char* sql) {
     }
 }
 
-void pastikan_skema(sqlite3* db) {
-    jalankan(db,
-        "CREATE TABLE IF NOT EXISTS rag_manual ("
-        " id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        " judul TEXT, penulis TEXT, penerbit TEXT,"
-        " sumber TEXT DEFAULT 'input_manual',"
-        " waktu_masuk TEXT DEFAULT CURRENT_TIMESTAMP)");
-
-    auto st = siapkan(db, "PRAGMA table_info(rag_manual)");
-    bool ada_isbn = false;
-    while (sqlite3_step(st.get()) == SQLITE_ROW)
-        if (kolom_teks(st.get(), 1) == "isbn") ada_isbn = true;
-    st.reset();
-    if (!ada_isbn) jalankan(db, "ALTER TABLE rag_manual ADD COLUMN isbn TEXT");
+bool punya_tabel(sqlite3* db, const std::string& tabel) {
+    auto st = siapkan(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?");
+    bind_teks(st.get(), 1, tabel);
+    return sqlite3_step(st.get()) == SQLITE_ROW;
 }
+
+bool punya_kolom(sqlite3* db, const std::string& tabel, const std::string& kolom) {
+    auto st = siapkan(db, ("PRAGMA table_info(" + tabel + ")").c_str());
+    while (sqlite3_step(st.get()) == SQLITE_ROW)
+        if (kolom_teks(st.get(), 1) == kolom) return true;
+    return false;
+}
+
+void pastikan_skema(sqlite3* db) { pastikan_skema_inti(db); }
 
 // Nama harus persis "<file>.bak-YYYYMMDD-HHMMSS" atau "<file>.bak-YYYYMMDD-HHMMSS-NN"
 // (NN = dua digit, 02..99, untuk backup yang jatuh pada detik yang sama), supaya file lain

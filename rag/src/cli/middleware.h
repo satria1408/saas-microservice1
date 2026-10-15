@@ -1,23 +1,24 @@
 #pragma once
+#include "koneksi.h"
 #include "opsi.h"
-#include "sqlite3.h"
 
-// Klasifikasi perintah: apa yang disentuhnya.
+// Apa yang dilakukan sebuah perintah terhadap satu file database.
+//   Baca          : harus ada, dibuka SQLITE_OPEN_READONLY (penulisan ditolak di level file)
+//   BacaOpsional  : sama, tapi kalau filenya belum ada dibiarkan null
+//   Tulis         : dibuka baca-tulis; inti.db di-backup dulu (kecuali --no-backup) baru skema
+//                   dipastikan; cache.db dibuat kalau belum ada (tanpa backup, cache boleh hilang)
+//   TulisOpsional : dibuka baca-tulis kalau filenya sudah ada, kalau tidak dibiarkan null
+//                   (pembersihan cache setelah buku masuk inti)
+enum class Peran { Tidak, Baca, BacaOpsional, Tulis, TulisOpsional };
+
 struct Akses {
-    bool baca_saja = false;        // murni membaca, tidak boleh mengubah apa pun
-    bool menulis_rag = false;      // add, import, edit, hapus
-    bool menulis_cache = false;    // cache add/status/hapus/bersihkan/promosi/ttl, cache scan add/hapus/bersihkan
-    bool menulis_katalog = false;  // katalog konfirmasi
-
-    bool menulis() const { return menulis_rag || menulis_cache || menulis_katalog; }
+    Peran inti = Peran::Tidak;
+    Peran cache = Peran::Tidak;
 };
 
 Akses tentukan_akses(const Opsi& o);
 
-// Dijalankan setelah DB dibuka, sebelum perintah diarahkan:
-//   - baca saja  : PRAGMA query_only = ON (skema juga tidak disentuh)
-//   - menulis    : backup DULU, baru skema dipastikan. Dengan begitu migrasi kolom
-//                  pertama kali (misalnya isbn) tidak ikut masuk ke salinan
-//                  sebelum-perubahan.
-//   - migrasi    : dilewati, karena perintah_migrasi mengurus backup dan skema sendiri.
-void jalankan_middleware(sqlite3* db, const Opsi& o);
+// Membuka file yang dibutuhkan perintah sesuai aksesnya. Perintah yang belum
+// diklasifikasikan ditolak. migrasi dan wal mengurus backup/skema sendiri, jadi hanya inti.db
+// yang dibuka (migrasi tanpa aksi boleh membuat inti.db baru).
+Koneksi siapkan_koneksi(const Opsi& o);

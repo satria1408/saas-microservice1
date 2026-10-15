@@ -3,10 +3,10 @@
 #include <vector>
 
 struct Opsi {
-    std::string db;
+    std::string db;     // inti.db
+    std::string cache;  // cache.db (bawaan: cache.db di folder yang sama dengan --db)
     bool no_backup = false, tanpa_transaksi = false, rinci = false, yes = false;
-    bool otomatis = false, cek = false; 
-    bool paksa = false;                  
+    bool paksa = false;
     int hari = 0;
     int simpan_backup = 5;
     std::vector<std::string> args;

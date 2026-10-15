@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <cstdlib>
+#include <filesystem>
 #include <stdexcept>
 
 int baca_angka(const std::string& s, const char* nama) {
@@ -25,11 +26,15 @@ Opsi baca_opsi(int argc, char** argv) {
     Opsi o;
     if (const char* e = std::getenv("RAG_DB")) o.db = e;
     else o.db = "book_cache.db";
+    if (const char* e = std::getenv("RAG_CACHE")) o.cache = e;
     for (int k = 1; k < argc; ++k) {
         std::string a = argv[k];
         if (a == "--db") {
             if (k + 1 >= argc) throw std::runtime_error("--db butuh path");
             o.db = argv[++k];
+        } else if (a == "--cache") {
+            if (k + 1 >= argc) throw std::runtime_error("--cache butuh path");
+            o.cache = argv[++k];
         } else if (a == "--hari") {
             if (k + 1 >= argc) throw std::runtime_error("--hari butuh angka");
             o.hari = baca_angka(argv[++k], "--hari");
@@ -40,13 +45,13 @@ Opsi baca_opsi(int argc, char** argv) {
         } else if (a == "--no-backup") o.no_backup = true;
         else if (a == "--tanpa-transaksi") o.tanpa_transaksi = true;
         else if (a == "--rinci") o.rinci = true;
-        else if (a == "--otomatis") o.otomatis = true;   // <-- BARU
-        else if (a == "--cek") o.cek = true;
         else if (a == "--paksa") o.paksa = true;
         else if (a == "-y") o.yes = true;
         else if (a.size() > 1 && a[0] == '-' && !std::isdigit(static_cast<unsigned char>(a[1])))
             throw std::runtime_error("opsi tidak dikenal: " + a);
         else o.args.push_back(a);
     }
+    if (o.cache.empty())  // bawaan: cache.db di folder yang sama dengan inti.db
+        o.cache = (std::filesystem::path(o.db).parent_path() / "cache.db").string();
     return o;
 }
