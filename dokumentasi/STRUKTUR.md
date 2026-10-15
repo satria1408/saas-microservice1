@@ -6,7 +6,7 @@ pakai ada di [README.md](../README.md).
 
 ## Ringkasan jumlah
 
-Total **73 file**: 4 di folder `rag` dan 69 di `src/`.
+Total **75 file**: 4 di folder `rag` dan 69 di `src/`.
 
 | Jenis | Jumlah |
 |---|---|
@@ -65,6 +65,8 @@ C++) dan CHANGELOG.
 | `build.bat` | build di Windows, daftar file ditulis satu per satu (tambah di sini kalau ada `.cpp` baru) |
 | `rag.exe` | hasil build (binary), bukan kode sumber; jangan di-commit |
 | `uji_tes.db` | database contoh untuk uji: 200 buku di `rag_manual` plus sedikit cache dan katalog |
+| 'tes_rag.py' | untuk fitur testing via cli agar tidak menulis cmd satu persatu secara manual |
+| 'umur.py' | untuk fitur menghitung waktu, hari, minggu, bulan, tahun |
 
 ### Inti (`src/`)
 
